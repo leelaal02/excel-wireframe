@@ -70,16 +70,25 @@ def estimate_overflow(text: str, cell_width_emu: int, limit_chars: int = 60) -> 
     return len(str(text)) > limit_chars * inches
 
 
-def collect_tables(slide, names: list[str] | None):
+def collect_tables(slide, names: list[str] | None, warns=None, screen_id=None):
     """상세 표를 슬롯 순서대로 모은다.
 
     이름이 지정되면 그 순서를 그대로 따른다. 없으면 좌→우로 정렬한다 —
     화면상 왼쪽 표가 앞 번호를 담는 것이 사람의 읽기 순서와 맞기 때문이다.
+
+    지정된 이름이 슬라이드에 없으면 shape-not-found 경고를 기록한다 (warns 제공 시).
     """
     tables = [s for s in slide.shapes if s.has_table]
     if names:
         by_name = {t.name: t for t in tables}
-        return [by_name[n] for n in names if n in by_name]
+        result = []
+        for n in names:
+            if n in by_name:
+                result.append(by_name[n])
+            elif warns is not None:
+                warns.add(screen_id, "shape-not-found",
+                          "표 '%s'을(를) 템플릿에서 찾지 못했습니다" % n)
+        return result
     return sorted(tables, key=lambda t: (t.left or 0, t.top or 0))
 
 
@@ -139,9 +148,9 @@ def fill_slots(
                 set_cell_text(table.cell(row, no_col), str(d.get("no", "") or ""))
             if text_col < len(table.columns):
                 set_cell_text(table.cell(row, text_col), text)
-            if estimate_overflow(text, width):
-                warns.add(screen_id, "text-overflow",
-                          "%s번 항목의 설명이 셀 폭을 넘길 수 있습니다" % d.get("no", "?"))
+                if estimate_overflow(text, width):
+                    warns.add(screen_id, "text-overflow",
+                              "%s번 항목의 설명이 셀 폭을 넘길 수 있습니다" % d.get("no", "?"))
             filled += 1
         elif clear_unused:
             if no_col < len(table.columns):

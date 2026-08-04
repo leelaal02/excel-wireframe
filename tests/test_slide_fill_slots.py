@@ -84,3 +84,24 @@ def test_place_image_fits_and_centers(tmp_path: Path):
     assert abs((pic.width / pic.height) - 5.0) < 0.05
     assert pic.left >= left and pic.top >= top
     assert abs((pic.left - left) - (left + w - (pic.left + pic.width))) <= 2
+
+
+def test_collect_tables_warns_on_missing_name(tmp_path: Path):
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    warns = Warnings()
+    tables = collect_tables(prs.slides[0], ["표 8", "표 999", "표 7"], warns, "S1")
+    assert [t.name for t in tables] == ["표 8", "표 7"]
+    assert len(warns.to_list()) == 1
+    assert warns.to_list()[0]["code"] == "shape-not-found"
+    assert "표 999" in warns.to_list()[0]["message"]
+
+
+def test_fill_slots_no_overflow_warning_when_text_column_missing(tmp_path: Path):
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    tables = collect_tables(prs.slides[0], None)
+    warns = Warnings()
+    # Use a cols dict where text column index is beyond table width
+    fill_slots(tables, _details(1), {"no": 0, "text": 5}, "desc", True, warns, "S1")
+    # Should not produce text-overflow warning since text column doesn't exist
+    overflow_warns = [w for w in warns.to_list() if w["code"] == "text-overflow"]
+    assert len(overflow_warns) == 0
