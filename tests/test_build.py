@@ -196,3 +196,56 @@ def test_build_does_not_import_openpyxl():
 
     src = inspect.getsource(build_mod)
     assert "openpyxl" not in src
+
+
+def _mapping_with_meta_shape(template: Path) -> dict:
+    m = _mapping(template)
+    m["template"]["shapes"]["프로젝트명"] = "텍스트 개체 틀 14"
+    return m
+
+
+def test_build_fills_meta_into_named_shape(tmp_path: Path):
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = _screens(2)
+    data["meta"]["프로젝트명"] = "통합관리시스템"
+    out = tmp_path / "out.pptx"
+    build(data, _mapping_with_meta_shape(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    shp = next(s for s in slide.shapes if s.name == "텍스트 개체 틀 14")
+    assert shp.text_frame.text == "통합관리시스템"
+
+
+def test_build_screen_fields_beat_document_meta(tmp_path: Path):
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = _screens(2)
+    data["meta"]["프로젝트명"] = "문서 전체 값"
+    data["screens"][0]["fields"]["프로젝트명"] = "화면별 값"
+    out = tmp_path / "out.pptx"
+    build(data, _mapping_with_meta_shape(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    shp = next(s for s in slide.shapes if s.name == "텍스트 개체 틀 14")
+    assert shp.text_frame.text == "화면별 값"
+
+
+def test_build_ignores_meta_without_matching_shape(tmp_path: Path):
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = _screens(2)
+    data["meta"]["아무도_안_쓰는_키"] = "값"
+    out = tmp_path / "out.pptx"
+    warns = Warnings()
+    build(data, _mapping(tpl), tmp_path, out, warns)
+    assert "shape-not-found" not in [w["code"] for w in warns.to_list()]
+
+
+def test_build_meta_does_not_override_title_shape(tmp_path: Path):
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = _screens(2)
+    data["meta"]["title"] = "문서 제목이 화면명을 덮으면 안 된다"
+    out = tmp_path / "out.pptx"
+    build(data, _mapping(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    shp = next(s for s in slide.shapes if s.name == "제목 13")
+    assert shp.text_frame.text == "이용기관 목록"

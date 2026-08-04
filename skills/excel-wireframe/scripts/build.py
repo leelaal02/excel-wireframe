@@ -56,7 +56,7 @@ def _drop_slide(prs, slide) -> None:
 
 
 def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
-               work_dir: Path, warns: Warnings) -> None:
+               work_dir: Path, warns: Warnings, meta: dict | None = None) -> None:
     tpl = mapping["template"]
     shapes_cfg = tpl.get("shapes", {})
     opts = mapping.get("options", {})
@@ -80,9 +80,17 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
         else:
             set_text(shp, scr["id"])
 
-    for key, value in (scr.get("fields") or {}).items():
-        name = shapes_cfg.get(key)
-        if not name:
+    # 화면별 fields가 문서 meta를 이긴다. 화면마다 다른 값이 있으면 그게 더 구체적이다.
+    reserved = {"title", "screen_id", "image", "detail_tables"}
+    doc_meta = meta or {}
+    for key, name in shapes_cfg.items():
+        if key in reserved:
+            continue
+        if key in (scr.get("fields") or {}):
+            value = (scr.get("fields") or {})[key]
+        elif key in doc_meta:
+            value = doc_meta[key]
+        else:
             continue
         shp = find_shape(slide, name)
         if shp is not None:
@@ -153,7 +161,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                 slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,
                            page_title(scr["name"], i, len(pages)),
-                           mapping, work_dir, warns)
+                           mapping, work_dir, warns, screens_data.get("meta"))
                 made += 1
         except Exception as exc:
             failed_ids.append(scr_id)
