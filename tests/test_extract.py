@@ -175,6 +175,47 @@ def test_extract_reports_when_cover_missing(tmp_path: Path, capsys):
     assert set(meta.keys()) == {"source", "template"}
 
 
+def test_extract_survives_malformed_cover_config(tmp_path: Path, capsys):
+    """치명적 결함 2의 회귀 테스트: mapping.json은 LLM이 스키마 표만 보고
+    작성하므로 'cover.sheet'라는 표 항목을 {"cover": "표지"}처럼 평평하게
+    잘못 적기 쉽다. 예전 코드는 (cfg.get("cover") or {}).get("sheet")에서
+    AttributeError를 그대로 던져 screens.json도, 이미지도, 경고도 없이
+    extract.main 전체가 죽었다 — '표지 파싱이 실패해도 화면 페이지 생성은
+    정상 진행된다'는 전역 제약을 정면으로 어겼다."""
+    xlsx, work, mp = _setup(tmp_path)
+    mapping = read_json(mp)
+    mapping["excel"]["cover"] = "표지"  # dict가 아니라 문자열 — 잘못된 모양
+    write_json(mp, mapping)
+
+    code = main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    assert code == 0
+
+    out = capsys.readouterr().out
+    assert "표지" in out
+    data = read_json(work / "screens.json")
+    assert data["screens"][0]["id"] == "SCR001"
+    assert set(data["meta"].keys()) == {"source", "template"}
+
+
+def test_extract_survives_malformed_meta_overrides(tmp_path: Path, capsys):
+    """치명적 결함 2의 두 번째 재현: meta_overrides가 dict가 아니라 list로
+    잘못 적히면 overrides.items()가 AttributeError를 던졌다. 이 경우도
+    화면 추출은 그대로 완주해야 한다."""
+    xlsx, work, mp = _setup(tmp_path)
+    mapping = read_json(mp)
+    mapping["excel"]["meta_overrides"] = ["프로젝트명"]  # dict가 아니라 list
+    write_json(mp, mapping)
+
+    code = main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    assert code == 0
+
+    out = capsys.readouterr().out
+    assert "표지" in out
+    data = read_json(work / "screens.json")
+    assert data["screens"][0]["id"] == "SCR001"
+    assert set(data["meta"].keys()) == {"source", "template"}
+
+
 def test_extract_reserved_keys_always_come_from_arguments(tmp_path: Path, monkeypatch):
     """read_cover_meta는 이미 source/template 라벨을 걸러내므로, 표지에 그
     라벨을 심어봤자 extract.py의 `{**cover_meta, "source": ..., "template":

@@ -72,7 +72,14 @@ def main(argv: list[str] | None = None) -> int:
     wb = load_workbook(excel_path, data_only=True)
     try:
         screens = read_screens(wb, mapping, warns)
-        cover_meta = read_cover_meta(wb, mapping, warns)
+        try:
+            cover_meta = read_cover_meta(wb, mapping, warns)
+        except Exception:
+            # mapping.json의 cover/meta_overrides 모양이 잘못돼도(예: cover가
+            # 문자열, meta_overrides가 리스트) 표지 파싱 실패가 화면 페이지
+            # 생성 전체를 무너뜨리면 안 된다 — 표지 없음과 같은 취급으로
+            # 내려가 아래 안내 문구가 그대로 출력되게 한다.
+            cover_meta = {}
         extract_images(excel_path, wb, mapping, screens, work, warns)
     finally:
         wb.close()
