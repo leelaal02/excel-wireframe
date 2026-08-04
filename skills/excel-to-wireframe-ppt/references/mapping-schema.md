@@ -62,7 +62,10 @@
 
 `build_default_template(path, slide_width_emu=..., slide_height_emu=..., table_count=..., rows_per_table=...)`로
 크기와 슬롯 수를 바꿀 수 있다. 상세가 항상 20건을 넘는 양식이라면 `rows_per_table`을
-키워 분할을 줄인다.
+키워 분할을 줄인다. 표 높이가 `rows_per_table`에 비례해 커지는 만큼 이미지 자리가
+줄어들므로 무한정 키울 수는 없다 — 기본 크기(16:9, 7.5in 높이)에서는 14행이
+이미지 자리가 1in 밑으로 내려가지 않는 상한이다. 이보다 크게 주면 `ValueError`로
+막는다(메시지에 그 슬라이드 크기에서 실제로 쓸 수 있는 최대값이 나온다).
 
 ### options
 

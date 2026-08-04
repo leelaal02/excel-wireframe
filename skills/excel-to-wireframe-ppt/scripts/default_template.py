@@ -25,6 +25,11 @@ TEXT_ON_BAR = RGBColor(0xFF, 0xFF, 0xFF)
 SLOT_BORDER = RGBColor(0xBB, 0xBB, 0xBB)
 SLOT_FILL = RGBColor(0xF5, 0xF6, 0xF8)
 
+# 이미지 자리가 이보다 작아지면 스크린샷을 알아볼 수 없어 기본 템플릿으로서
+# 의미가 없다. table_h가 rows_per_table에 비례해 커지므로 이 값을 넘는
+# rows_per_table은 슬라이드 하단을 넘치거나(음수 높이) 이미지 자리를 짓누른다.
+MIN_IMAGE_HEIGHT_EMU = int(1.0 * EMU_PER_INCH)
+
 
 def _textbox(slide, name, left, top, width, height, text, size_pt, color=None,
              bold=False):
@@ -82,6 +87,30 @@ def build_default_template(
     tables_top = int(slide_height_emu - table_h - bottom_margin)
     img_top = bar_h + int(0.15 * EMU_PER_INCH)
     img_h = tables_top - img_top - int(0.15 * EMU_PER_INCH)
+
+    if img_h < MIN_IMAGE_HEIGHT_EMU:
+        # 이전 기하는 rows_per_table과 무관해 이 실패가 있을 수 없었다. 지금은
+        # table_h가 rows_per_table에 비례하므로 값을 키우면 이미지 자리가
+        # 줄어들다가 결국 음수가 된다(측정: rows=17 → -0.14in, rows=20이면
+        # tables_top 자체가 슬라이드 상단 밖). 조용히 겹치거나 음수 크기의
+        # 도형을 만드는 대신, 이 슬라이드 크기에서 실제로 쓸 수 있는 최대
+        # rows_per_table을 계산해 알려준다.
+        max_rows = int(
+            (slide_height_emu - bottom_margin - img_top
+             - int(0.15 * EMU_PER_INCH) - MIN_IMAGE_HEIGHT_EMU)
+            // row_h
+        )
+        raise ValueError(
+            "rows_per_table=%d면 이미지 자리 높이가 %.2fin로 너무 작아집니다"
+            "(최소 %.2fin 필요). 이 슬라이드 크기(%.2f x %.2fin)에서는 "
+            "rows_per_table을 %d 이하로 쓰세요."
+            % (
+                rows_per_table, img_h / EMU_PER_INCH,
+                MIN_IMAGE_HEIGHT_EMU / EMU_PER_INCH,
+                slide_width_emu / EMU_PER_INCH, slide_height_emu / EMU_PER_INCH,
+                max_rows,
+            )
+        )
 
     img_slot = slide.shapes.add_shape(1, Emu(margin), Emu(img_top),
                                       Emu(inner_w), Emu(img_h))

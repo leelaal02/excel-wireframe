@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from common import resolve_template_path
@@ -26,16 +27,30 @@ def _title_texts(slide: dict, title_name: str | None) -> list[str]:
     return [sh["text"] for sh in slide["shapes"] if sh["text"]]
 
 
+def _matches_screen_name(text: str, screen_name: str) -> bool:
+    """제목 텍스트가 정확히 이 화면 것인지 판단한다.
+
+    예전엔 부분 문자열 포함 여부만 봤다 — "목록"과 "이용기관 목록"처럼 한
+    화면명이 다른 화면명의 부분 문자열이면 한 슬라이드가 두 화면 모두에
+    매치됐다. 화면명 반영/이미지 배치 검사는 "매치가 있는가"만 봐서 이
+    과다매치가 무해했지만, 상세 항목 수 검사는 매치된 슬라이드를 전부
+    합산하므로 과다매치가 그대로 오탐이 된다. page_title()이 만드는 꼴은
+    "이름" 또는 "이름 (i/n)" 뿐이므로 끝을 고정하면 정확히 잡아낼 수 있다.
+    """
+    pattern = r"^%s(\s*\(\d+/\d+\))?$" % re.escape(screen_name)
+    return re.match(pattern, text.strip()) is not None
+
+
 def _slides_for_screen(slides: list[dict], title_name: str | None,
                        screen_name: str) -> list[dict]:
-    """화면명이 제목(또는 대체 텍스트)에 들어간 슬라이드를 모두 찾는다.
+    """화면명이 제목(또는 대체 텍스트)과 정확히 일치하는 슬라이드를 모두 찾는다.
 
     분할된 화면은 '이름 (1/2)', '이름 (2/2)'처럼 슬라이드가 여러 장이므로
     첫 번째 매치만 보면 안 된다.
     """
     return [
         s for s in slides
-        if any(screen_name in t for t in _title_texts(s, title_name))
+        if any(_matches_screen_name(t, screen_name) for t in _title_texts(s, title_name))
     ]
 
 
@@ -110,39 +125,63 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
     # 빈 목록을 반환해 fill_slots가 아예 안 돌고, 표는 템플릿의 예시 텍스트
     # 그대로 남는다 — 앞의 네 검사는 이 상황에서도 전부 통과하므로 이 검사가
     # 유일하게 잡아낸다.
-    tpl_cfg = mapping.get("template", {})
-    table_cols = tpl_cfg.get("table_columns", {"no": 0, "text": 1})
-    text_col = int(table_cols.get("text", 1))
-    detail_names = tpl_cfg.get("shapes", {}).get("detail_tables")
-    prs = Presentation(str(out_path))
+    opts = mapping.get("options", {})
+    clear_unused = bool(opts.get("clear_unused_slots", True))
+    if not clear_unused:
+        # clear_unused_slots가 꺼져 있으면 안 쓰는 슬롯은 템플릿의 예시
+        # 텍스트를 일부러 그대로 남긴다 — "채워진 슬롯 수"가 애초에 의미가
+        # 없으므로 검사를 걸러 오탐을 만들지 않는다.
+        checks.append(
+            {
+                "name": "상세 항목 수",
+                "ok": True,
+                "detail": "options.clear_unused_slots가 꺼져 있어 검사를 건너뜁니다"
+                          "(안 쓰는 슬롯이 예시 텍스트를 그대로 유지하므로 채워진"
+                          " 슬롯 수가 상세 건수를 나타내지 않습니다)",
+            }
+        )
+    else:
+        tpl_cfg = mapping.get("template", {})
+        table_cols = tpl_cfg.get("table_columns", {"no": 0, "text": 1})
+        no_col = int(table_cols.get("no", 0))
+        text_col = int(table_cols.get("text", 1))
+        detail_names = tpl_cfg.get("shapes", {}).get("detail_tables")
+        prs = Presentation(str(out_path))
 
-    detail_issues: list[str] = []
-    for scr in screens:
-        matches = _slides_for_screen(slides, title_name, scr["name"])
-        if not matches:
-            continue  # 화면명 반영 검사가 이미 이 화면을 짚었다
-        expected = len(scr.get("details", []))
-        actual = 0
-        for s in matches:
-            slide = prs.slides[s["index"]]
-            for t in collect_tables(slide, detail_names):
-                table = t.table
-                if text_col >= len(table.columns):
-                    continue
-                for r in range(len(table.rows)):
-                    if table.cell(r, text_col).text.strip():
-                        actual += 1
-        if actual != expected:
-            detail_issues.append(
-                "%s: 상세 %d건, 표에 채워진 슬롯 %d개" % (scr["id"], expected, actual)
-            )
-    checks.append(
-        {
-            "name": "상세 항목 수",
-            "ok": not detail_issues,
-            "detail": "문제 없음" if not detail_issues else "; ".join(detail_issues),
-        }
-    )
+        detail_issues: list[str] = []
+        for scr in screens:
+            matches = _slides_for_screen(slides, title_name, scr["name"])
+            if not matches:
+                continue  # 화면명 반영 검사가 이미 이 화면을 짚었다
+            expected = len(scr.get("details", []))
+            actual = 0
+            for s in matches:
+                slide = prs.slides[s["index"]]
+                for t in collect_tables(slide, detail_names):
+                    table = t.table
+                    n_cols = len(table.columns)
+                    for r in range(len(table.rows)):
+                        # 번호 칸 또는 설명 칸 중 하나라도 차 있으면 슬롯이
+                        # 채워진 것으로 본다. desc가 빈 문자열인 상세 행도
+                        # _read_details는 no/요소명 등 다른 칸이 차 있으면
+                        # 그대로 통과시키므로, 설명 칸만 보면 그런 상세가
+                        # "슬롯 미달"로 오탐된다 — 번호는 Excel에서 왔으니
+                        # 설명이 비어도 항상 있다.
+                        no_filled = no_col < n_cols and table.cell(r, no_col).text.strip()
+                        text_filled = text_col < n_cols and table.cell(r, text_col).text.strip()
+                        if no_filled or text_filled:
+                            actual += 1
+            if actual != expected:
+                detail_issues.append(
+                    "%s: 상세 %d건, 표에 채워진 슬롯 %d개" % (scr["id"], expected, actual)
+                )
+        checks.append(
+            {
+                "name": "상세 항목 수",
+                "ok": not detail_issues,
+                "detail": "문제 없음" if not detail_issues else "; ".join(detail_issues),
+            }
+        )
 
     template = resolve_template_path(mapping["template"], work_dir)
     if template.exists():

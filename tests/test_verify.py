@@ -35,6 +35,74 @@ def _data(image: str | None) -> dict:
     }
 
 
+def test_verify_counts_slot_filled_when_only_number_is_present(tmp_path: Path):
+    """회귀 1: 상세 항목 수 검사가 설명 칸만 봐서, desc가 빈 문자열인 상세
+    행(다른 칸 — no, 요소명 등 — 은 차 있는)이 있는 정상 생성물을 실패로
+    보고했다. _read_details는 매핑된 칸 중 하나라도 값이 있으면 그 행을
+    유지하므로 이런 상세는 실제로 흔하다. 번호 칸은 Excel에서 왔으니
+    설명이 비어도 항상 있다 — 번호 또는 설명 중 하나만 있어도 슬롯이
+    채워진 것으로 세어야 한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "SCR001.png")
+    data = _data("images/SCR001.png")
+    data["screens"][0]["details"] = [
+        {"no": "1", "desc": "등록한다"},
+        {"no": "2", "desc": ""},
+        {"no": "3", "desc": "삭제한다"},
+    ]
+    out = tmp_path / "out.pptx"
+    report = build(data, _mapping(tpl), tmp_path, out, Warnings())
+
+    result = verify_output(out, data, _mapping(tpl), report["slides"])
+    assert result["ok"] is True
+    assert all(c["ok"] for c in result["checks"])
+
+
+def test_verify_does_not_double_count_when_screen_name_is_a_substring(tmp_path: Path):
+    """회귀 2: '목록'과 '이용기관 목록'처럼 한 화면명이 다른 화면명의 부분
+    문자열이면, 부분일치 매칭은 '이용기관 목록' 슬라이드를 '목록' 화면에도
+    매치시켜 상세 항목 수 검사가 두 화면 몫을 합산해 오탐했다. 화면명 반영/
+    이미지 배치 검사는 매치 유무만 보므로 이 과다매치가 예전엔 무해했다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "S1.png")
+    make_png(tmp_path / "images" / "S2.png")
+    data = {
+        "meta": {"title": "화면설계서"},
+        "screens": [
+            {"id": "S1", "name": "목록", "images": ["images/S1.png"], "fields": {},
+             "details": [{"no": "1", "desc": "a"}]},
+            {"id": "S2", "name": "이용기관 목록", "images": ["images/S2.png"], "fields": {},
+             "details": [{"no": "1", "desc": "b"}, {"no": "2", "desc": "c"}]},
+        ],
+    }
+    out = tmp_path / "out.pptx"
+    report = build(data, _mapping(tpl), tmp_path, out, Warnings())
+
+    result = verify_output(out, data, _mapping(tpl), report["slides"])
+    assert result["ok"] is True
+    assert all(c["ok"] for c in result["checks"])
+
+
+def test_verify_skips_detail_count_when_clear_unused_slots_is_false(tmp_path: Path):
+    """회귀 3: clear_unused_slots가 꺼지면 안 쓰는 슬롯은 템플릿의 예시 텍스트
+    ('예시 설명 N')를 그대로 유지한다. 상세 항목 수 검사가 옵션을 모르면 그
+    예시 텍스트까지 '채워진 슬롯'으로 세어, 상세가 표 슬롯 수보다 적은
+    화면을 전부 영구적으로 실패시켰다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "SCR001.png")
+    data = _data("images/SCR001.png")  # 상세 1건, 표는 20슬롯
+    mapping = _mapping(tpl)
+    mapping["options"]["clear_unused_slots"] = False
+    out = tmp_path / "out.pptx"
+    report = build(data, mapping, tmp_path, out, Warnings())
+
+    result = verify_output(out, data, mapping, report["slides"])
+    assert result["ok"] is True
+    checks = {c["name"]: c for c in result["checks"]}
+    assert checks["상세 항목 수"]["ok"] is True
+    assert "clear_unused_slots" in checks["상세 항목 수"]["detail"]
+
+
 def test_verify_passes_for_workdir_relative_template_path(tmp_path: Path):
     """블로킹 발견 1: build()는 template.file이 상대경로면 work_dir 기준으로
     다시 찾지만, verify_output은 예전엔 그렇게 하지 않아 정상적으로 만들어진

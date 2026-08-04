@@ -18,8 +18,13 @@ from xlsx_read import read_screens
 
 def _screen_key(scr: dict, index: int) -> str:
     """screens.json은 사람이 손으로 편집한다 — id가 빠진 화면 dict가 섞여도
-    KeyError로 diff 전체를 무너뜨리지 않도록 인덱스 기반 대체 키를 쓴다."""
-    return scr.get("id") or "(id 없음 #%d)" % index
+    KeyError로 diff 전체를 무너뜨리지 않도록 인덱스 기반 대체 키를 쓴다.
+
+    index는 enumerate()의 0-based 값이므로 1을 더해 build.py의 표기(스크린
+    카운터를 증가시킨 뒤 쓰므로 1-based)와 맞춘다 — 같은 화면이 두 단계
+    출력에서 다른 번호로 불리면 사람이 대조하기 어렵다.
+    """
+    return scr.get("id") or "(id 없음 #%d)" % (index + 1)
 
 
 def diff_screens(old: dict, new: dict) -> list[str]:

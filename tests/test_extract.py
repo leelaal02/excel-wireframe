@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from common import read_json, write_json
-from extract import diff_screens, main
+from extract import _screen_key, diff_screens, main
 from fixtures import make_sheet_per_screen_xlsx
 
 MAPPING = {
@@ -78,6 +78,22 @@ def test_diff_screens_reports_changes():
 def test_diff_screens_empty_when_same():
     same = {"screens": [{"id": "A", "name": "n", "details": []}]}
     assert diff_screens(same, same) == []
+
+
+def test_screen_key_fallback_label_matches_build_py_numbering():
+    """회귀 5: build.py는 screen_count를 화면마다 증가시킨 뒤(1부터 시작) id
+    없는 화면의 폴백 라벨을 만든다. extract.py의 _screen_key는 enumerate()의
+    0-based 인덱스를 그대로 썼어서 같은 첫 화면이 build.py에서는
+    '(id 없음 #1)', extract.py에서는 '(id 없음 #0)'으로 서로 다르게
+    불렸다 — 두 단계 출력을 사람이 대조할 수 없었다."""
+    scr = {"name": "id 없는 화면"}
+
+    # build.py 쪽 공식 재현: for 루프에서 screen_count를 증가시킨 뒤(1-based)
+    # scr.get("id") or "(id 없음 #%d)" % screen_count 로 계산한다.
+    screen_count_for_first_screen = 1
+    build_style_label = scr.get("id") or "(id 없음 #%d)" % screen_count_for_first_screen
+
+    assert _screen_key(scr, 0) == build_style_label == "(id 없음 #1)"
 
 
 def test_diff_screens_reports_deletion():
