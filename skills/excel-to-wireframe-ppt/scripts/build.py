@@ -21,6 +21,7 @@ from slide_fill import (
     place_image,
     set_text,
 )
+from verify import verify_output
 
 
 def chunk_details(details: list[dict], slot_count: int) -> list[list[dict]]:
@@ -188,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         print("실패한 화면: %s" % ", ".join(report["failed"]))
     if len(warns):
         print(warns.format())
+    result = verify_output(Path(args.out), screens_data, mapping, report["slides"])
+    print("검증: %s" % ("통과" if result["ok"] else "실패"))
+    for c in result["checks"]:
+        print("  [%s] %s — %s" % ("O" if c["ok"] else "X", c["name"], c["detail"]))
     print("저장: %s" % args.out)
     return 0
 
