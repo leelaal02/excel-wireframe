@@ -35,8 +35,9 @@ python -c "import pptx, openpyxl, PIL"
 python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.pptx> --out work/structure-report.json
 ```
 
-**템플릿을 안 받았으면 `--template`을 생략한다.** 기본 템플릿(16:9, 제목 바 + 이미지 자리 +
-상세 표 5개 × 4행)이 `work/default-template.pptx`로 만들어지고, 그에 맞는 매핑이
+**템플릿을 안 받았으면 `--template`을 생략한다.** 기본 템플릿(16:9, 제목 바(`작성일`
+포함) + 이미지 자리 + 상세 표 5개 × 4행 + 표 아래 `문서제목`)이
+`work/default-template.pptx`로 만들어지고, 그에 맞는 매핑이
 리포트의 `suggested_template_mapping`에 담긴다. 템플릿이 있는지 사용자에게 먼저 묻지 말고,
 없으면 기본 템플릿으로 진행한 뒤 결과를 보여주며 "원하는 템플릿이 있으면 주시면 그대로
 맞춰 드립니다"라고 알린다. 빈손으로 되묻는 것보다 결과물을 보고 판단하는 편이 빠르다.
@@ -100,6 +101,7 @@ python <스킬>/scripts/build.py --screens work/screens.json --mapping work/mapp
 | 이미지가 안 붙음 | `sheet-per-screen`인데 시트명 매칭이 안 되거나, Excel이 이미지를 도형으로 넣었다. `structure-report.json`의 `image_count`를 먼저 본다 |
 | 제목이 안 채워짐 | `shapes.title`의 도형 이름이 템플릿과 다르다. 리포트의 도형 이름 목록과 대조한다 |
 | 표가 예시 텍스트 그대로 | `detail_tables` 이름이 틀렸다. 이름을 비우면 좌→우 자동 정렬로 대체된다. 이 경우 `shape-not-found` 경고가 함께 떠서 어떤 표 이름을 못 찾았는지 알려주므로, 눈에 보이는 증상만 보지 말고 경고 목록을 먼저 확인한다 |
+| 문서제목·작성일이 비었거나 `meta`에 엉뚱한 값이 들어감 | 표지 시트를 잘못 골랐다는 신호다. `mapping.excel.cover.sheet`로 표지 시트를 명시 지정하거나 `meta_overrides`로 직접 지정한다 |
 | 한글이 깨져 출력됨 | 콘솔 인코딩 문제다. `PYTHONIOENCODING=utf-8`을 설정하고 재실행한다 |
 | 템플릿에 예시 슬라이드가 없다고 나옴 | `analyze.py`가 `layout` 모드로 판정한 경우다. 빈 레이아웃에는 상세를 넣을 표가 없으므로, 사용자에게 예시 페이지가 있는 템플릿을 요청하거나 `--template` 없이 기본 템플릿으로 진행한다 |
 
