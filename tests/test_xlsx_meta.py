@@ -18,6 +18,17 @@ TABLE_MAPPING = {
     }
 }
 
+# excel.sheet를 생략한 table 매핑 — xlsx_read._read_table도 이 경우 wb.worksheets[0]로
+# 떨어지므로, 표지 후보 제외 로직도 같은 폴백을 써야 한다(재리뷰 지적).
+TABLE_MAPPING_NO_SHEET = {
+    "excel": {
+        "layout": "table",
+        "header_row": 3,
+        "columns": {"id": "A", "name": "B"},
+        "detail": {"mode": "grouped-rows", "columns": {"no": "D", "element": "E", "desc": "F"}},
+    }
+}
+
 
 def _cover_xlsx(path: Path, rows=None, title_cells=None) -> Path:
     """실제 샘플과 같은 배치의 표지: 라벨 C열, 값 E열, 단독 셀 B열."""
@@ -196,6 +207,21 @@ def test_find_cover_sheet_returns_none_when_table_screen_sheet_has_many_pairs(tm
     assert wb.sheetnames == ["화면목록"]
     assert find_cover_sheet(wb, TABLE_MAPPING) is None
     assert read_cover_meta(wb, TABLE_MAPPING, Warnings()) == {}
+
+
+def test_find_cover_sheet_returns_none_when_table_sheet_omitted_and_only_screen_sheet(
+    tmp_path: Path,
+):
+    """재리뷰: Critical 1이 절반만 닫혔었다. excel.sheet를 생략한 table 매핑은
+    LLM이 스키마 표에서 선택 필드로 보이는 키를 빠뜨리는 흔한 실수인데,
+    _screen_sheet_names는 이 경우 빈 집합을 돌려줘 제외가 전혀 일어나지 않았다
+    — _read_table의 실제 폴백(wb.worksheets[0])과 어긋난 탓이다. 그 결과
+    화면 목록 시트가 다시 표지로 오채택돼 원래 증상이 그대로 재현됐다."""
+    xlsx = make_table_xlsx(tmp_path / "s.xlsx")
+    wb = load_workbook(xlsx)
+    assert wb.worksheets[0].title == "화면목록"
+    assert find_cover_sheet(wb, TABLE_MAPPING_NO_SHEET) is None
+    assert read_cover_meta(wb, TABLE_MAPPING_NO_SHEET, Warnings()) == {}
 
 
 def test_find_cover_sheet_skips_hint_named_screen_sheet(tmp_path: Path):

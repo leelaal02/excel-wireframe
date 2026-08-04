@@ -80,7 +80,12 @@ def _screen_sheet_names(wb, cfg: dict) -> set[str]:
     layout = cfg.get("layout", "sheet-per-screen")
     if layout == "table":
         sheet = cfg.get("sheet")
-        return {sheet} if sheet else set()
+        if not sheet:
+            # xlsx_read._read_table도 excel.sheet 생략 시 같은 폴백(첫 시트)을
+            # 쓴다 — 두 곳이 같은 시트를 화면 시트로 봐야 한다. 여기서 폴백이
+            # 어긋나면 sheet를 생략한 table 매핑에서 Critical 1이 되살아난다.
+            return {wb.worksheets[0].title} if wb.worksheets else set()
+        return {sheet}
 
     include = cfg.get("sheet_include")
     if not include:
