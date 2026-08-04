@@ -72,6 +72,9 @@ def test_sample_end_to_end(tmp_path: Path):
     assert scr["name"] == "이용기관 목록"
     assert len(scr["details"]) == 16
     assert scr["images"] == ["images/B2BISMT1001.png"]
+    # 중요 발견 5: extract가 만든 meta가 표지의 실제 작성일과 일치하는지
+    # 사람이 수동으로만 확인해 오던 것을 코드화한다.
+    assert screens["meta"]["작성일"] == "2026-06-11"
 
     out = work / "output" / "화면설계서.pptx"
     r = _run("build.py", "--screens", str(work / "screens.json"),
