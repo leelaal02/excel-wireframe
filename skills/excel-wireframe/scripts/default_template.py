@@ -18,6 +18,8 @@ DEFAULT_SHAPE_NAMES = {
     "title": "제목",
     "screen_id": "화면ID",
     "image": "화면이미지",
+    "doc_title": "문서제목",
+    "date": "작성일",
 }
 
 BAR_COLOR = RGBColor(0x1F, 0x3B, 0x63)
@@ -76,8 +78,12 @@ def build_default_template(
              "화면명", 18, TEXT_ON_BAR, bold=True)
     _textbox(slide, DEFAULT_SHAPE_NAMES["screen_id"],
              margin + int(inner_w * 0.62), int(0.10 * EMU_PER_INCH),
-             int(inner_w * 0.38), int(0.30 * EMU_PER_INCH),
+             int(inner_w * 0.20), int(0.30 * EMU_PER_INCH),
              "화면ID", 11, TEXT_ON_BAR)
+    _textbox(slide, DEFAULT_SHAPE_NAMES["date"],
+             margin + int(inner_w * 0.82), int(0.10 * EMU_PER_INCH),
+             int(inner_w * 0.18), int(0.30 * EMU_PER_INCH),
+             "", 9, TEXT_ON_BAR)
 
     # 표 높이는 rows_per_table에 비례한다(4행일 때 1.55in — 기존 기본값과 동일).
     # 표를 늘릴수록 그만큼 이미지 자리가 줄어들어야 슬라이드 하단을 넘치지 않는다.
@@ -144,6 +150,12 @@ def build_default_template(
                     for run in p.runs:
                         run.font.size = Pt(9)
 
+    foot_top = tables_top + table_h + int(0.08 * EMU_PER_INCH)
+    foot_h = min(int(0.22 * EMU_PER_INCH), max(slide_height_emu - foot_top, 0))
+    _textbox(slide, DEFAULT_SHAPE_NAMES["doc_title"],
+             margin, foot_top, int(inner_w * 0.5), foot_h,
+             "", 8, SLOT_BORDER)
+
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     prs.save(str(path))
@@ -160,6 +172,8 @@ def default_template_mapping(path: Path, table_count: int = 5) -> dict:
             "title": DEFAULT_SHAPE_NAMES["title"],
             "screen_id": DEFAULT_SHAPE_NAMES["screen_id"],
             "image": DEFAULT_SHAPE_NAMES["image"],
+            "문서제목": DEFAULT_SHAPE_NAMES["doc_title"],
+            "작성일": DEFAULT_SHAPE_NAMES["date"],
             "detail_tables": ["상세표%d" % (i + 1) for i in range(table_count)],
         },
         "table_columns": {"no": 0, "text": 1},

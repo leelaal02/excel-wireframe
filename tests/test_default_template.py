@@ -115,3 +115,37 @@ def test_default_template_mapping_matches_shapes(tmp_path: Path):
         "상세표1", "상세표2", "상세표3", "상세표4", "상세표5"
     ]
     assert mp["table_columns"] == {"no": 0, "text": 1}
+
+
+def test_default_template_has_meta_shapes(tmp_path: Path):
+    p = build_default_template(tmp_path / "d.pptx")
+    names = [s.name for s in Presentation(str(p)).slides[0].shapes]
+    assert "문서제목" in names
+    assert "작성일" in names
+
+
+def test_default_template_meta_shapes_are_empty(tmp_path: Path):
+    p = build_default_template(tmp_path / "d.pptx")
+    slide = Presentation(str(p)).slides[0]
+    for name in ("문서제목", "작성일"):
+        shp = next(s for s in slide.shapes if s.name == name)
+        assert shp.text_frame.text == ""
+
+
+def test_default_template_meta_shapes_stay_inside_slide(tmp_path: Path):
+    p = build_default_template(tmp_path / "d.pptx")
+    prs = Presentation(str(p))
+    slide = prs.slides[0]
+    for name in ("문서제목", "작성일"):
+        shp = next(s for s in slide.shapes if s.name == name)
+        assert shp.left >= 0
+        assert shp.top >= 0
+        assert shp.left + shp.width <= prs.slide_width
+        assert shp.top + shp.height <= prs.slide_height
+
+
+def test_default_template_mapping_includes_meta_shapes(tmp_path: Path):
+    p = build_default_template(tmp_path / "d.pptx")
+    shapes = default_template_mapping(p)["shapes"]
+    assert shapes["문서제목"] == "문서제목"
+    assert shapes["작성일"] == "작성일"

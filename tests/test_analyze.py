@@ -72,3 +72,12 @@ def test_main_with_given_template_has_no_suggestion(tmp_path: Path):
     out = tmp_path / "work" / "structure-report.json"
     main(["--excel", str(xlsx), "--template", str(pptx), "--out", str(out)])
     assert "suggested_template_mapping" not in read_json(out)
+
+
+def test_suggested_mapping_carries_meta_shapes(tmp_path: Path):
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    out = tmp_path / "work" / "structure-report.json"
+    main(["--excel", str(xlsx), "--out", str(out)])
+    shapes = read_json(out)["suggested_template_mapping"]["shapes"]
+    assert shapes["문서제목"] == "문서제목"
+    assert shapes["작성일"] == "작성일"
