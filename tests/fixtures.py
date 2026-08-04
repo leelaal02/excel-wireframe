@@ -8,6 +8,10 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image as PILImage
 
+from default_template import build_default_template
+from pptx import Presentation
+from pptx.util import Emu
+
 DETAIL_HEADER = ["No.", "요소타입", "요소명", "상세 설명", "위치"]
 
 
@@ -75,4 +79,34 @@ def make_table_xlsx(path: Path) -> Path:
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
+    return path
+
+
+def make_template_pptx(path: Path, table_count: int = 5, rows_per_table: int = 4) -> Path:
+    """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 예시 슬라이드형 템플릿."""
+    build_default_template(
+        path,
+        slide_width_emu=9906000,   # 10.83in — 실제 샘플과 동일
+        slide_height_emu=6858000,  # 7.50in
+        table_count=table_count,
+        rows_per_table=rows_per_table,
+    )
+    prs = Presentation(str(path))
+    rename = {"제목": "제목 13", "화면ID": "텍스트 개체 틀 14", "화면이미지": "그림 18"}
+    for shp in prs.slides[0].shapes:
+        if shp.name in rename:
+            shp.name = rename[shp.name]
+        elif shp.name.startswith("상세표"):
+            shp.name = "표 %d" % (6 + int(shp.name[len("상세표"):]))
+    prs.save(str(path))
+    return path
+
+
+def make_empty_layout_pptx(path: Path) -> Path:
+    """빈 레이아웃형 템플릿 — clone 모드로 오판되면 안 된다."""
+    prs = Presentation()
+    prs.slide_width = Emu(9906000)
+    prs.slide_height = Emu(6858000)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(path))
     return path
