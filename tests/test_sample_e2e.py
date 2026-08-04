@@ -90,8 +90,12 @@ def test_sample_end_to_end(tmp_path: Path):
     tables = sorted((s for s in slide.shapes if s.has_table), key=lambda s: s.left)
     assert len(tables) == 5
     assert tables[0].table.cell(0, 0).text == "1"
-    # 상세 16건 → 마지막 표 마지막 행(20번 슬롯)은 비어 있어야 한다
-    assert tables[4].table.cell(3, 1).text == ""
+    # 상세 16건 → 표1~4(16슬롯)까지 꽉 차고 마지막 표(17~20번 슬롯)는 통째로 비어야 한다.
+    # 마지막 행 한 칸만 확인하면 "마지막 행만 지우는" 버그도 통과해버리므로 4행 x 2열을 모두 본다.
+    last_table = tables[4].table
+    for row in range(4):
+        assert last_table.cell(row, 0).text == ""
+        assert last_table.cell(row, 1).text == ""
 
     pics = [s for s in slide.shapes if s.shape_type == 13]
     assert len(pics) == 1
