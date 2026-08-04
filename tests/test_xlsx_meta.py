@@ -86,3 +86,69 @@ def test_read_cover_meta_returns_empty_when_no_cover(tmp_path: Path):
     loaded = load_workbook(p)
     assert find_cover_sheet(loaded, MAPPING) is None
     assert read_cover_meta(loaded, MAPPING, Warnings()) == {}
+
+
+def test_read_cover_meta_drops_reserved_labels(tmp_path: Path):
+    xlsx = _cover_xlsx(
+        tmp_path / "s.xlsx",
+        rows=[
+            ("프로젝트명", "통합관리시스템"),
+            ("source", "짧은 버전.xlsx"),
+            ("template", "default.pptx"),
+        ],
+    )
+    meta = read_cover_meta(load_workbook(xlsx), MAPPING, Warnings())
+    assert "source" not in meta
+    assert "template" not in meta
+    assert meta["프로젝트명"] == "통합관리시스템"
+
+
+def test_meta_overrides_cannot_set_reserved_keys(tmp_path: Path):
+    wb = load_workbook(_cover_xlsx(tmp_path / "s.xlsx"))
+    mapping = {"excel": {"sheet_include": "^설계_",
+                         "meta_overrides": {"source": "hacked.xlsx",
+                                            "template": "hacked.pptx"}}}
+    meta = read_cover_meta(wb, mapping, Warnings())
+    assert "source" not in meta
+    assert "template" not in meta
+    assert meta["프로젝트명"] == "통합관리시스템"
+
+
+def test_find_cover_sheet_returns_none_when_named_sheet_missing(tmp_path: Path):
+    wb = load_workbook(_cover_xlsx(tmp_path / "s.xlsx"))
+    mapping = {"excel": {"sheet_include": "^설계_", "cover": {"sheet": "없는시트"}}}
+    assert find_cover_sheet(wb, mapping) is None
+
+
+def test_read_cover_meta_reads_multiple_pairs_in_one_row(tmp_path: Path):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "표지"
+    ws.cell(row=7, column=3, value="프로젝트명")
+    ws.cell(row=7, column=5, value="통합관리시스템")
+    ws.cell(row=7, column=7, value="상태")
+    ws.cell(row=7, column=9, value="진행중")
+    wb.create_sheet("설계_SCR001")["A1"] = "화면설계서 - SCR001 (목록)"
+    p = tmp_path / "s.xlsx"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(p)
+    meta = read_cover_meta(load_workbook(p), MAPPING, Warnings())
+    assert meta["프로젝트명"] == "통합관리시스템"
+    assert meta["상태"] == "진행중"
+
+
+def test_read_cover_meta_ignores_rows_beyond_max_scan_row(tmp_path: Path):
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "표지"
+    ws.cell(row=7, column=3, value="프로젝트명")
+    ws.cell(row=7, column=5, value="통합관리시스템")
+    ws.cell(row=41, column=3, value="숨겨진라벨")
+    ws.cell(row=41, column=5, value="숨겨진값")
+    wb.create_sheet("설계_SCR001")["A1"] = "화면설계서 - SCR001 (목록)"
+    p = tmp_path / "s.xlsx"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(p)
+    meta = read_cover_meta(load_workbook(p), MAPPING, Warnings())
+    assert "숨겨진라벨" not in meta
+    assert meta["프로젝트명"] == "통합관리시스템"
