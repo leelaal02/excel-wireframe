@@ -122,10 +122,10 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     made = 0
     split_ids: list[str] = []
     failed_ids: list[str] = []
-    ok_screens = 0
+    screen_count = 0
 
     for scr in screens_data.get("screens", []):
-        ok_screens += 1
+        screen_count += 1
         try:
             pages = chunk_details(scr.get("details", []), slot_count)
             if len(pages) > 1:
@@ -160,7 +160,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
 
     return {
         "slides": made,
-        "screens": ok_screens,
+        "screens": screen_count,
         "split": split_ids,
         "failed": failed_ids,
     }
