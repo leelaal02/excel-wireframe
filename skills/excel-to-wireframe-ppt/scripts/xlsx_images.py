@@ -38,7 +38,7 @@ def _image_bytes(img) -> bytes:
     return buf.getvalue()
 
 
-def collect_openpyxl_images(wb) -> list[dict]:
+def collect_openpyxl_images(wb, warns: Warnings | None = None) -> list[dict]:
     out = []
     for ws in wb.worksheets:
         for img in getattr(ws, "_images", []):
@@ -48,7 +48,13 @@ def collect_openpyxl_images(wb) -> list[dict]:
             col = int(getattr(frm, "col", -1)) if frm is not None else -1
             try:
                 data = _image_bytes(img)
-            except Exception:
+            except Exception as exc:
+                if warns is not None:
+                    warns.add(
+                        None,
+                        "image-convert-failed",
+                        "%s 시트의 이미지를 읽지 못했습니다 (%s)" % (ws.title, exc),
+                    )
                 continue
             ext = (getattr(img, "format", None) or "png").lower()
             out.append(
@@ -92,11 +98,19 @@ def _drawing_anchor_map(z: zipfile.ZipFile) -> dict[str, tuple[str, int, int]]:
     return result
 
 
+def _natural_key(name: str) -> list:
+    """`image10` > `image2`로 취급하는 lexicographic 정렬을 피하려고 숫자를 int로 쪼갠다."""
+    return [int(t) if t.isdigit() else t.lower() for t in re.split(r"(\d+)", name)]
+
+
 def collect_zip_images(xlsx_path: Path) -> list[dict]:
     out = []
     with zipfile.ZipFile(xlsx_path) as z:
         anchors = _drawing_anchor_map(z)
-        media = sorted(n for n in z.namelist() if n.startswith("xl/media/"))
+        media = sorted(
+            (n for n in z.namelist() if n.startswith("xl/media/")),
+            key=lambda n: _natural_key(Path(n).name),
+        )
         for name in media:
             base = Path(name).name
             sheet, row, col = anchors.get(base, ("", -1, -1))
@@ -141,7 +155,10 @@ def _assign(mapping: dict, screens: list[dict], found: list[dict]) -> dict[str, 
                 by_screen[sid].append(f)
             else:
                 leftovers.append(f)
-        # 시트명을 못 구한 폴백 결과는 순서대로 이미지 없는 화면에 배분한다
+        # 시트명을 못 구한 폴백 결과는 앵커(row, col) 순으로 이미지 없는 화면에 배분한다.
+        # 앵커가 전부 -1(미상)이거나 서로 같으면 sorted()의 안정성 덕에
+        # collect_zip_images가 만들어 둔 natural 파일명 순서가 그대로 유지된다.
+        leftovers.sort(key=lambda f: (f["row"], f["col"]))
         empty = [s["id"] for s in screens if not by_screen[s["id"]]]
         for sid, f in zip(empty, leftovers):
             by_screen[sid].append(f)
@@ -161,7 +178,7 @@ def extract_images(
     out_dir: Path,
     warns: Warnings,
 ) -> None:
-    found = collect_openpyxl_images(wb)
+    found = collect_openpyxl_images(wb, warns)
     with zipfile.ZipFile(xlsx_path) as z:
         media_count = sum(1 for n in z.namelist() if n.startswith("xl/media/"))
     if media_count > len(found):
