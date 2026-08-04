@@ -133,3 +133,67 @@ def test_extract_warns_and_prints_on_zero_screens(tmp_path: Path):
     assert "sheet_include" in out
     data = read_json(work / "screens.json")
     assert data["screens"] == []
+
+
+def test_extract_puts_cover_meta_into_screens_json(tmp_path: Path):
+    xlsx, work, mp = _setup(tmp_path)
+    # _setup의 픽스처에는 표지 시트가 '표지' 이름으로 들어 있다
+    from openpyxl import load_workbook
+    wb = load_workbook(xlsx)
+    ws = wb["표지"]
+    ws["C7"] = "프로젝트명"
+    ws["E7"] = "통합관리시스템"
+    ws["C8"] = "작성일"
+    ws["E8"] = "2026-06-11"
+    wb.save(xlsx)
+
+    assert main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)]) == 0
+    meta = read_json(work / "screens.json")["meta"]
+    assert meta["프로젝트명"] == "통합관리시스템"
+    assert meta["작성일"] == "2026-06-11"
+    assert meta["source"].endswith("s.xlsx")
+
+
+def test_extract_no_longer_hardcodes_title(tmp_path: Path):
+    xlsx, work, mp = _setup(tmp_path)
+    main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    meta = read_json(work / "screens.json")["meta"]
+    assert meta.get("title") != "화면설계서"
+
+
+def test_extract_reports_when_cover_missing(tmp_path: Path, capsys):
+    xlsx, work, mp = _setup(tmp_path)
+    from openpyxl import load_workbook
+    wb = load_workbook(xlsx)
+    del wb["표지"]
+    wb.save(xlsx)
+
+    # 픽스처에는 화면 시트가 아닌 "테스트_무시대상" 시트도 섞여 있어, 자동
+    # 탐지(첫 비-화면 시트)에 맡기면 표지 대신 그 시트를 표지로 오인해버려
+    # "표지 없음" 경로를 실제로 타지 못한다. find_cover_sheet는 명시 지정된
+    # 시트가 없을 때만 None을 반환하므로(tests/test_xlsx_meta.py의
+    # test_find_cover_sheet_returns_none_when_named_sheet_missing 참고),
+    # 표지를 명시 지정해 방금 지운 시트를 가리키게 한다.
+    mapping = read_json(mp)
+    mapping["excel"]["cover"] = {"sheet": "표지"}
+    write_json(mp, mapping)
+
+    assert main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)]) == 0
+    out = capsys.readouterr().out
+    assert "표지" in out
+    meta = read_json(work / "screens.json")["meta"]
+    assert set(meta.keys()) == {"source", "template"}
+
+
+def test_extract_reserved_keys_survive_cover_labels(tmp_path: Path):
+    xlsx, work, mp = _setup(tmp_path)
+    from openpyxl import load_workbook
+    wb = load_workbook(xlsx)
+    ws = wb["표지"]
+    ws["C7"] = "source"
+    ws["E7"] = "표지가 지정한 엉뚱한 값"
+    wb.save(xlsx)
+
+    main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    meta = read_json(work / "screens.json")["meta"]
+    assert meta["source"].endswith("s.xlsx")

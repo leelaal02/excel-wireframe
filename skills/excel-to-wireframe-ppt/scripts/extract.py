@@ -13,6 +13,7 @@ from pathlib import Path
 from common import Warnings, read_json, setup_stdio, write_json
 from openpyxl import load_workbook
 from xlsx_images import extract_images
+from xlsx_meta import read_cover_meta
 from xlsx_read import read_screens
 
 
@@ -71,13 +72,18 @@ def main(argv: list[str] | None = None) -> int:
     wb = load_workbook(excel_path, data_only=True)
     try:
         screens = read_screens(wb, mapping, warns)
+        cover_meta = read_cover_meta(wb, mapping, warns)
         extract_images(excel_path, wb, mapping, screens, work, warns)
     finally:
         wb.close()
 
+    if not cover_meta:
+        print("표지 시트를 찾지 못해 문서 정보를 비웠습니다 "
+              "(mapping.excel.cover.sheet로 지정할 수 있습니다)")
+
     payload = {
         "meta": {
-            "title": "화면설계서",
+            **cover_meta,
             "source": str(excel_path),
             "template": mapping.get("template", {}).get("file", ""),
         },
