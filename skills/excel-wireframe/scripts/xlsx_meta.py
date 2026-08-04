@@ -69,14 +69,35 @@ def _has_cover_name_hint(name: str) -> bool:
     return any(hint in lower for hint in COVER_NAME_HINTS)
 
 
+def _screen_sheet_names(wb, cfg: dict) -> set[str]:
+    """화면 데이터로 이미 쓰이는 시트 이름 집합.
+
+    표지 후보를 고르는 두 지점(이름 힌트 검사, 위치 폴백) 모두 이 집합을
+    빼고 봐야 한다 — 안 그러면 화면 시트 자체가 표지로 오인된다.
+    ``table`` 레이아웃은 화면 목록이 ``excel.sheet`` 한 장에 있고,
+    ``sheet-per-screen``은 ``excel.sheet_include`` 정규식에 걸리는 시트들이다.
+    """
+    layout = cfg.get("layout", "sheet-per-screen")
+    if layout == "table":
+        sheet = cfg.get("sheet")
+        return {sheet} if sheet else set()
+
+    include = cfg.get("sheet_include")
+    if not include:
+        return set()
+    rx = re.compile(include)
+    return {name for name in wb.sheetnames if rx.search(name)}
+
+
 def find_cover_sheet(wb, mapping: dict) -> str | None:
     """표지 시트를 고른다.
 
     1. 명시 지정(``excel.cover.sheet``)이 있으면 그것을 쓴다(없는 이름이면 None).
-    2. 시트 이름에 표지를 가리키는 힌트(표지/표제/개요/cover/front)가 있으면
-       그 첫 시트를 쓴다 — 실제 샘플의 '표지' 시트가 여기서 바로 잡힌다.
-    3. 힌트가 없으면 화면 시트로 쓰이지 않은 첫 시트(``sheet_include`` 미설정
-       이면 첫 시트)를 후보로 삼되, 그 시트에서 라벨-값 쌍이 2개 이상 나올
+    2. 화면 시트로 쓰이지 않는 시트 중, 이름에 표지를 가리키는 힌트
+       (표지/표제/개요/cover/front)가 있으면 그 첫 시트를 쓴다 — 실제 샘플의
+       '표지' 시트가 여기서 바로 잡힌다.
+    3. 힌트가 없으면 화면 시트로 쓰이지 않은 첫 시트(제외할 화면 시트가 없으면
+       그냥 첫 시트)를 후보로 삼되, 그 시트에서 라벨-값 쌍이 2개 이상 나올
        때만 표지로 채택한다. 표지가 아예 없는 워크북은 화면이 아닌 시트도
        한둘 섞여 있을 수 있는데(부록, 비교표 등), 쌍이 1개 이하면 그런
        시트를 표지로 오인한 것으로 보고 None을 반환한다.
@@ -86,20 +107,19 @@ def find_cover_sheet(wb, mapping: dict) -> str | None:
     if named:
         return named if named in wb.sheetnames else None
 
+    screen_sheets = _screen_sheet_names(wb, cfg)
+
     for name in wb.sheetnames:
+        if name in screen_sheets:
+            continue
         if _has_cover_name_hint(name):
             return name
 
-    include = cfg.get("sheet_include")
     candidate: str | None = None
-    if not include:
-        candidate = wb.sheetnames[0] if wb.sheetnames else None
-    else:
-        rx = re.compile(include)
-        for name in wb.sheetnames:
-            if not rx.search(name):
-                candidate = name
-                break
+    for name in wb.sheetnames:
+        if name not in screen_sheets:
+            candidate = name
+            break
 
     if candidate is None:
         return None

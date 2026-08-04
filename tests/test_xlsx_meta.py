@@ -2,10 +2,21 @@ import datetime
 from pathlib import Path
 
 from common import Warnings
+from fixtures import make_table_xlsx
 from openpyxl import Workbook, load_workbook
 from xlsx_meta import find_cover_sheet, read_cover_meta
 
 MAPPING = {"excel": {"layout": "sheet-per-screen", "sheet_include": "^설계_"}}
+
+TABLE_MAPPING = {
+    "excel": {
+        "layout": "table",
+        "sheet": "화면목록",
+        "header_row": 3,
+        "columns": {"id": "A", "name": "B"},
+        "detail": {"mode": "grouped-rows", "columns": {"no": "D", "element": "E", "desc": "F"}},
+    }
+}
 
 
 def _cover_xlsx(path: Path, rows=None, title_cells=None) -> Path:
@@ -156,6 +167,59 @@ def test_find_cover_sheet_ignores_non_cover_sheets_when_cover_is_missing(tmp_pat
     loaded = load_workbook(p)
     assert find_cover_sheet(loaded, MAPPING) is None
     assert read_cover_meta(loaded, MAPPING, Warnings()) == {}
+
+
+def test_find_cover_sheet_returns_none_for_table_layout_with_few_pairs(tmp_path: Path):
+    """table 레이아웃에서 화면 목록 시트 하나뿐이고 라벨-값 쌍도 2개 미만이면
+    (이 자체는 기존 규칙으로도 걸러진다) 표지 없음으로 처리돼야 한다."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "화면목록"
+    ws["A1"] = "화면 정의서"
+    p = tmp_path / "s.xlsx"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(p)
+    loaded = load_workbook(p)
+    assert find_cover_sheet(loaded, TABLE_MAPPING) is None
+
+
+def test_find_cover_sheet_returns_none_when_table_screen_sheet_has_many_pairs(tmp_path: Path):
+    """치명적 결함 1의 회귀 테스트: table 레이아웃은 mapping.excel에
+    sheet_include가 없어 예전 코드는 화면 목록 시트(wb.sheetnames[0])를 그대로
+    표지 후보로 삼았다. make_table_xlsx의 헤더 행(화면ID/화면명/...)이 라벨-값
+    쌍을 트리비얼하게 MIN_COVER_PAIRS 이상으로 채워 채택돼버렸고, 그 결과
+    '화면ID' -> '화면명', 'SCR001' -> '이용기관 목록' 같은 화면 데이터가
+    문서 meta로 둔갑했다. excel.sheet로 지정된 화면 목록 시트는 쌍이 몇 개든
+    후보에서 제외돼야 한다."""
+    xlsx = make_table_xlsx(tmp_path / "s.xlsx")
+    wb = load_workbook(xlsx)
+    assert wb.sheetnames == ["화면목록"]
+    assert find_cover_sheet(wb, TABLE_MAPPING) is None
+    assert read_cover_meta(wb, TABLE_MAPPING, Warnings()) == {}
+
+
+def test_find_cover_sheet_skips_hint_named_screen_sheet(tmp_path: Path):
+    """중요 발견 3의 회귀 테스트: 이름 힌트 루프(표지/표제/개요/cover/front)는
+    sheet_include보다 먼저 도는데, 예전 코드는 그 루프에서 화면 시트 제외를
+    전혀 적용하지 않았다. sheet_include='^설계_'인 워크북에서 '설계_개요화면'은
+    화면 시트이면서 동시에 '개요' 힌트에 걸려, 실제 표지인 '표지' 시트보다
+    먼저(sheetnames 순서상 앞이므로) 잘못 채택됐다."""
+    mapping = {"excel": {"layout": "sheet-per-screen", "sheet_include": "^설계_"}}
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "설계_개요화면"
+    ws["A1"] = "화면설계서 - SCR001 (개요화면)"
+    cover = wb.create_sheet("표지")
+    cover["C7"] = "프로젝트명"
+    cover["E7"] = "통합관리시스템"
+    cover["C8"] = "작성일"
+    cover["E8"] = "2026-06-11"
+    p = tmp_path / "s.xlsx"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(p)
+    loaded = load_workbook(p)
+    assert loaded.sheetnames[0] == "설계_개요화면"
+    assert find_cover_sheet(loaded, mapping) == "표지"
 
 
 def test_read_cover_meta_ignores_rows_beyond_max_scan_row(tmp_path: Path):
