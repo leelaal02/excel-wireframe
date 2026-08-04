@@ -60,7 +60,7 @@
 }
 ```
 
-`build_default_template(path, slide_width_emu=..., table_count=..., rows_per_table=...)`로
+`build_default_template(path, slide_width_emu=..., slide_height_emu=..., table_count=..., rows_per_table=...)`로
 크기와 슬롯 수를 바꿀 수 있다. 상세가 항상 20건을 넘는 양식이라면 `rows_per_table`을
 키워 분할을 줄인다.
 
@@ -69,7 +69,7 @@
 | 필드 | 기본 | 설명 |
 |---|---|---|
 | `detail_text_source` | `desc` | 상세 표에 넣을 `details` 키 |
-| `overflow` | `split` | 슬롯을 넘치면 다음 슬라이드로 분할하고 제목에 `(1/2)` 표시 |
+| `overflow` | `split` | 슬롯을 넘치면 다음 슬라이드로 분할하고 제목에 `(1/2)` 표시. `build.py`는 이 값을 읽지 않는다 — 분할은 항상 일어난다. 다른 값을 넣어도(예: `none`) 동작은 바뀌지 않는다. 이 필드는 향후 확장을 위해 자리만 있다 |
 | `clear_unused_slots` | `true` | 남는 슬롯의 예시 텍스트를 비운다 |
 
 ## screens.json (SSOT)
