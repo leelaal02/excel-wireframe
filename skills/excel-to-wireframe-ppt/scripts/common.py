@@ -6,6 +6,22 @@ import json
 import sys
 from pathlib import Path
 
+EMU_PER_INCH = 914400
+
+
+def resolve_template_path(tpl: dict, work_dir: Path | None = None) -> Path:
+    """template.file 경로를 해석한다.
+
+    절대경로거나 cwd 기준으로 이미 존재하면 그대로 쓴다. 아니면 작업 디렉토리
+    기준으로 다시 찾는다 — mapping.json에는 work 디렉토리 상대 경로를 쓰는 것이
+    자연스럽고, mapping-schema.md의 예시도 그렇게 쓰여 있다. build.py와
+    verify.py가 이 함수를 함께 써야 같은 파일을 같은 파일로 판단한다.
+    """
+    path = Path(tpl["file"])
+    if not path.is_absolute() and not path.exists() and work_dir is not None:
+        path = Path(work_dir) / tpl["file"]
+    return path
+
 
 def setup_stdio() -> None:
     """Windows cp949 콘솔에서 한글이 깨지지 않도록 UTF-8을 강제한다."""

@@ -78,3 +78,42 @@ def test_diff_screens_reports_changes():
 def test_diff_screens_empty_when_same():
     same = {"screens": [{"id": "A", "name": "n", "details": []}]}
     assert diff_screens(same, same) == []
+
+
+def test_diff_screens_reports_deletion():
+    """추가/변경 분기는 이미 돈다. 삭제 분기(옛 화면이 새 추출 결과에서
+    사라진 경우)는 지금까지 어떤 테스트도 실행하지 않았다."""
+    old = {"screens": [
+        {"id": "A", "name": "남는 화면", "details": []},
+        {"id": "B", "name": "삭제될 화면", "details": []},
+    ]}
+    new = {"screens": [{"id": "A", "name": "남는 화면", "details": []}]}
+
+    lines = diff_screens(old, new)
+    assert "- 화면 삭제: B (삭제될 화면)" in lines
+    assert not any(line.startswith("+") for line in lines)
+    assert not any(line.startswith("~") for line in lines)
+
+
+def test_extract_warns_and_prints_on_zero_screens(tmp_path: Path):
+    """sheet_include가 아무 시트에도 안 맞아 화면이 0개 추출되면, 다음 단계인
+    build.py의 검증이 잡아주는 것과는 별개로 이 단계에서 바로 원인을 알려줘야
+    한다 — 여기가 사람이 sheet_include를 실제로 고칠 수 있는 지점이다."""
+    xlsx, work, mp = _setup(tmp_path)
+    mapping = read_json(mp)
+    mapping["excel"]["sheet_include"] = "^존재하지않는패턴_"
+    write_json(mp, mapping)
+
+    import io
+    import contextlib
+
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        code = main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    assert code == 0
+
+    out = buf.getvalue()
+    assert "화면 0개" in out
+    assert "sheet_include" in out
+    data = read_json(work / "screens.json")
+    assert data["screens"] == []

@@ -26,8 +26,8 @@
 | 필드 | 값 | 설명 |
 |---|---|---|
 | `file` | 경로 | 복제 소스 pptx. 결과물의 슬라이드 크기는 이 파일을 따른다 |
-| `mode` | `clone` \| `layout` | 예시 슬라이드 복제인지, 빈 레이아웃인지 |
-| `source_slide` | 정수 | 복제할 슬라이드 인덱스(0-based) |
+| `mode` | `clone` | 생성 단계(`build.py`)는 예시 슬라이드 복제만 지원한다. `build.py`는 이 필드를 실제로 읽지 않는다 — `source_slide`가 있으면 항상 복제한다. `analyze.py`는 예시 슬라이드가 없는 템플릿에 `mode: layout`과 `source_slide: null`을 제안할 수 있지만, 그 값을 그대로 넘기면 `build.py`가 원인과 대안(예시 슬라이드가 있는 템플릿을 쓰거나 `--template`을 생략해 기본 템플릿 사용)을 알려주며 실패한다 |
+| `source_slide` | 정수 | 복제할 슬라이드 인덱스(0-based). `null`이면 생성이 실패한다(위 참고) |
 | `shapes.title` | 도형 이름 | 화면명이 들어갈 자리 |
 | `shapes.screen_id` | 도형 이름 | 화면ID가 들어갈 자리 |
 | `shapes.image` | 도형 이름 | 스크린샷이 들어갈 자리. 이 도형은 제거되고 그 위치·크기에 이미지가 들어간다 |

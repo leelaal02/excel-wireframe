@@ -50,10 +50,17 @@ def collect_openpyxl_images(wb, warns: Warnings | None = None) -> list[dict]:
                 data = _image_bytes(img)
             except Exception as exc:
                 if warns is not None:
+                    # image-convert-failed 코드를 재사용한다(경고 코드는 아홉 개로
+                    # 닫혀 있다) — 다만 이건 EMF/WMF 변환 실패가 아니라 openpyxl로
+                    # 이 이미지를 못 읽었다는 뜻이다. extract_images는 이 직후
+                    # xl/media 개수와 비교해 zip 폴백으로 같은 이미지를 복구할 수
+                    # 있으므로, 메시지가 "데이터 손실"을 단정하지 않고 시도 자체가
+                    # 실패했다는 사실만 말하게 한다.
                     warns.add(
                         None,
                         "image-convert-failed",
-                        "%s 시트의 이미지를 읽지 못했습니다 (%s)" % (ws.title, exc),
+                        "%s 시트의 이미지를 openpyxl로 읽는 데 실패했습니다 (%s) "
+                        "— zip 폴백으로 복구될 수 있습니다" % (ws.title, exc),
                     )
                 continue
             ext = (getattr(img, "format", None) or "png").lower()

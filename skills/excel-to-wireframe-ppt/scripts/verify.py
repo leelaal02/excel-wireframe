@@ -8,7 +8,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common import resolve_template_path
+from pptx import Presentation
 from pptx_scan import scan_presentation
+from slide_fill import collect_tables
 
 
 def _title_texts(slide: dict, title_name: str | None) -> list[str]:
@@ -37,7 +40,7 @@ def _slides_for_screen(slides: list[dict], title_name: str | None,
 
 
 def verify_output(out_path: Path, screens_data: dict, mapping: dict,
-                  expected_slides: int) -> dict:
+                  expected_slides: int, work_dir: Path | None = None) -> dict:
     report = scan_presentation(Path(out_path))
     slides = report["slides"]
     checks: list[dict] = []
@@ -52,6 +55,21 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
 
     title_name = mapping.get("template", {}).get("shapes", {}).get("title")
     screens = screens_data.get("screens", [])
+
+    # expected_slides는 screens_data 자체에서 파생되므로, 화면이 통째로 0개면
+    # 슬라이드 수 검사도 "기대 0장, 실제 0장"으로 공허하게 통과하고 나머지
+    # 검사도 빈 목록을 돌며 전부 통과한다. sheet_include 오타처럼 매핑이 완전히
+    # 잘못된 가장 흔한 사고가 "검증: 통과"로 보고되는 사고를 막는다.
+    checks.append(
+        {
+            "name": "화면 데이터",
+            "ok": bool(screens),
+            "detail": "화면 %d개" % len(screens) if screens
+            else "화면이 0개입니다 — mapping.json의 excel.sheet_include"
+                 "(sheet-per-screen) 또는 excel 레이아웃 설정이 실제 Excel과 "
+                 "맞지 않을 가능성이 큽니다",
+        }
+    )
 
     missing_titles = [
         scr["name"] for scr in screens
@@ -87,7 +105,46 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
         }
     )
 
-    template = Path(mapping["template"]["file"])
+    # 설계 스펙의 5개 검증 항목 중 "상세 항목 수와 표에 채워진 슬롯 수가
+    # 일치하는가"에 해당한다. detail_tables 이름이 틀리면 collect_tables가
+    # 빈 목록을 반환해 fill_slots가 아예 안 돌고, 표는 템플릿의 예시 텍스트
+    # 그대로 남는다 — 앞의 네 검사는 이 상황에서도 전부 통과하므로 이 검사가
+    # 유일하게 잡아낸다.
+    tpl_cfg = mapping.get("template", {})
+    table_cols = tpl_cfg.get("table_columns", {"no": 0, "text": 1})
+    text_col = int(table_cols.get("text", 1))
+    detail_names = tpl_cfg.get("shapes", {}).get("detail_tables")
+    prs = Presentation(str(out_path))
+
+    detail_issues: list[str] = []
+    for scr in screens:
+        matches = _slides_for_screen(slides, title_name, scr["name"])
+        if not matches:
+            continue  # 화면명 반영 검사가 이미 이 화면을 짚었다
+        expected = len(scr.get("details", []))
+        actual = 0
+        for s in matches:
+            slide = prs.slides[s["index"]]
+            for t in collect_tables(slide, detail_names):
+                table = t.table
+                if text_col >= len(table.columns):
+                    continue
+                for r in range(len(table.rows)):
+                    if table.cell(r, text_col).text.strip():
+                        actual += 1
+        if actual != expected:
+            detail_issues.append(
+                "%s: 상세 %d건, 표에 채워진 슬롯 %d개" % (scr["id"], expected, actual)
+            )
+    checks.append(
+        {
+            "name": "상세 항목 수",
+            "ok": not detail_issues,
+            "detail": "문제 없음" if not detail_issues else "; ".join(detail_issues),
+        }
+    )
+
+    template = resolve_template_path(mapping["template"], work_dir)
     if template.exists():
         tpl_report = scan_presentation(template)
         same = (

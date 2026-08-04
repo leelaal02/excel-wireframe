@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common import EMU_PER_INCH
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.util import Emu, Pt
@@ -23,7 +24,6 @@ BAR_COLOR = RGBColor(0x1F, 0x3B, 0x63)
 TEXT_ON_BAR = RGBColor(0xFF, 0xFF, 0xFF)
 SLOT_BORDER = RGBColor(0xBB, 0xBB, 0xBB)
 SLOT_FILL = RGBColor(0xF5, 0xF6, 0xF8)
-EMU_PER_INCH = 914400
 
 
 def _textbox(slide, name, left, top, width, height, text, size_pt, color=None,
@@ -74,7 +74,12 @@ def build_default_template(
              int(inner_w * 0.38), int(0.30 * EMU_PER_INCH),
              "화면ID", 11, TEXT_ON_BAR)
 
-    tables_top = int(slide_height_emu - 1.85 * EMU_PER_INCH)
+    # 표 높이는 rows_per_table에 비례한다(4행일 때 1.55in — 기존 기본값과 동일).
+    # 표를 늘릴수록 그만큼 이미지 자리가 줄어들어야 슬라이드 하단을 넘치지 않는다.
+    row_h = (1.55 / 4) * EMU_PER_INCH
+    table_h = int(row_h * rows_per_table)
+    bottom_margin = int(0.30 * EMU_PER_INCH)
+    tables_top = int(slide_height_emu - table_h - bottom_margin)
     img_top = bar_h + int(0.15 * EMU_PER_INCH)
     img_h = tables_top - img_top - int(0.15 * EMU_PER_INCH)
 
@@ -92,7 +97,6 @@ def build_default_template(
 
     gap = int(0.06 * EMU_PER_INCH)
     table_w = (inner_w - gap * (table_count - 1)) // table_count
-    table_h = int(1.55 * EMU_PER_INCH)
     for t in range(table_count):
         left = margin + (table_w + gap) * t
         shp = slide.shapes.add_table(

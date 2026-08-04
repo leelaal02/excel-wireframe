@@ -9,9 +9,8 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
+from common import EMU_PER_INCH
 from PIL import Image
-
-EMU_PER_INCH = 914400
 
 
 def find_shape(slide, name: str):

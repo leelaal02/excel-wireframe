@@ -16,9 +16,15 @@ from xlsx_images import extract_images
 from xlsx_read import read_screens
 
 
+def _screen_key(scr: dict, index: int) -> str:
+    """screens.json은 사람이 손으로 편집한다 — id가 빠진 화면 dict가 섞여도
+    KeyError로 diff 전체를 무너뜨리지 않도록 인덱스 기반 대체 키를 쓴다."""
+    return scr.get("id") or "(id 없음 #%d)" % index
+
+
 def diff_screens(old: dict, new: dict) -> list[str]:
-    old_map = {s["id"]: s for s in old.get("screens", [])}
-    new_map = {s["id"]: s for s in new.get("screens", [])}
+    old_map = {_screen_key(s, i): s for i, s in enumerate(old.get("screens", []))}
+    new_map = {_screen_key(s, i): s for i, s in enumerate(new.get("screens", []))}
     lines: list[str] = []
 
     for sid in new_map:
@@ -93,6 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     with_image = sum(1 for s in screens if s["images"])
     print("화면 %d개, 상세 %d건, 이미지 있는 화면 %d개"
           % (len(screens), total_details, with_image))
+    if not screens:
+        # 화면이 통째로 0개인 가장 흔한 원인은 sheet_include 정규식이 실제 시트명과
+        # 안 맞는 매핑 오타다. build.py는 이 상태에서도 0개짜리 결과물을 "성공"으로
+        # 보고할 수 있으므로(검증 단계에서 별도로 잡는다), 이 단계에서 바로 원인을
+        # 짚어 사람이 다음 실행 전에 알아챌 수 있게 한다.
+        print("경고: 화면을 0개 추출했습니다 — mapping.json의 excel.sheet_include"
+              "(sheet-per-screen) 또는 excel 레이아웃 설정을 확인하세요")
     if len(warns):
         print(warns.format())
     return 0

@@ -53,6 +53,20 @@ def test_default_template_size_is_configurable(tmp_path: Path):
     assert sum(1 for s in prs.slides[0].shapes if s.has_table) == 3
 
 
+def test_default_template_image_slot_does_not_overlap_tables(tmp_path: Path):
+    """가로축(표끼리 겹치지 않음)은 이미 검사한다. 세로축은 아무도 다시 안 본다 —
+    표 높이가 rows_per_table에 비례해 커지면 이미지 자리가 슬라이드 하단
+    표 위치까지 침범할 수 있다."""
+    p = build_default_template(tmp_path / "d.pptx", rows_per_table=8)
+    prs = Presentation(str(p))
+    shapes = prs.slides[0].shapes
+    img_slot = next(s for s in shapes if s.name == DEFAULT_SHAPE_NAMES["image"])
+    tables = [s for s in shapes if s.has_table]
+    assert img_slot.top + img_slot.height <= tables[0].top
+    for t in tables:
+        assert t.top + t.height <= prs.slide_height
+
+
 def test_default_template_mapping_matches_shapes(tmp_path: Path):
     p = build_default_template(tmp_path / "d.pptx")
     mp = default_template_mapping(p)

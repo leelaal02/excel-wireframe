@@ -57,10 +57,23 @@ def _read_details(ws, detail_cfg: dict, warns: Warnings, screen_id: str) -> list
     details = []
     r = header_row + 1
     last = ws.max_row or 0
+    blank_streak = 0
     while r <= last:
         row_vals = {k: _cell_text(ws, r, c) for k, c in cols.items()}
         if not any(row_vals.values()):
-            break
+            # _read_table의 blank_streak 관용구를 재사용한다: 표 중간의 빈 구분
+            # 행 한 줄로 표가 끝난 것으로 오판하지 않는다. 연속 3줄이 비어야
+            # 진짜 표 끝으로 본다.
+            blank_streak += 1
+            if blank_streak >= 3:
+                break
+            r += 1
+            continue
+        blank_streak = 0
+        # detail.columns에서 "no"를 생략한 매핑에서는 cols에 "no" 키가 없어
+        # row_vals.get("no")가 항상 None이 된다. 그런 경우에도 key_col(위에서
+        # no 없으면 header_scan_column으로 대체됨) 기준 셀이 비어 있으면 표
+        # 끝으로 봐야 한다 — 삭제하면 no 없는 매핑에서 상세가 계속 읽힌다.
         if not row_vals.get("no") and not _cell_text(ws, r, key_col):
             break
         details.append(row_vals)

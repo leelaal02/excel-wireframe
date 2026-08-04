@@ -35,6 +35,68 @@ def _data(image: str | None) -> dict:
     }
 
 
+def test_verify_passes_for_workdir_relative_template_path(tmp_path: Path):
+    """블로킹 발견 1: build()는 template.file이 상대경로면 work_dir 기준으로
+    다시 찾지만, verify_output은 예전엔 그렇게 하지 않아 정상적으로 만들어진
+    결과물에서도 '템플릿 파일을 찾을 수 없어 비교 불가'로 실패 보고를 했다.
+    mapping-schema.md 예시 그대로(work 디렉토리 상대경로)를 재현한다."""
+    make_template_pptx(tmp_path / "t.pptx")  # 절대경로로 실제 생성
+    make_png(tmp_path / "images" / "SCR001.png")
+    data = _data("images/SCR001.png")
+    mapping = _mapping(tmp_path / "t.pptx")
+    mapping["template"]["file"] = "t.pptx"  # work_dir 기준 상대경로로 바꿔 둔다
+    out = tmp_path / "out.pptx"
+    report = build(data, mapping, tmp_path, out, Warnings())
+
+    result = verify_output(out, data, mapping, report["slides"], tmp_path)
+    assert result["ok"] is True
+    assert all(c["ok"] for c in result["checks"])
+
+
+def test_verify_fails_when_screens_are_empty(tmp_path: Path):
+    """블로킹 발견 2: sheet_include 오타 등으로 화면이 통째로 0개면
+    expected_slides도 같은 빈 입력에서 파생되어 '기대 0장, 실제 0장'으로
+    공허하게 통과한다. 화면 데이터 자체가 비어 있다는 사실을 별도로 잡아야
+    빈 매핑 사고가 '검증: 통과'로 보고되지 않는다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = {"meta": {"title": "화면설계서"}, "screens": []}
+    out = tmp_path / "out.pptx"
+    report = build(data, _mapping(tpl), tmp_path, out, Warnings())
+    assert report["slides"] == 0
+
+    result = verify_output(out, data, _mapping(tpl), report["slides"])
+    assert result["ok"] is False
+    failed = {c["name"]: c for c in result["checks"] if not c["ok"]}
+    assert "화면 데이터" in failed
+    assert "sheet_include" in failed["화면 데이터"]["detail"]
+
+
+def test_verify_detects_wrong_detail_table_names(tmp_path: Path):
+    """블로킹 발견 5: detail_tables 이름이 실제 템플릿과 다르면 collect_tables가
+    빈 목록을 반환해 fill_slots가 전혀 돌지 않는다. 표는 템플릿의 예시 텍스트
+    ('예시 설명 1'...)를 그대로 유지한 채 저장되지만, 앞의 네 검사(슬라이드 수/
+    화면 데이터/화면명 반영/이미지 배치)는 이 상황에서도 전부 통과한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "SCR001.png")
+    data = _data("images/SCR001.png")
+    bad_mapping = _mapping(tpl)
+    bad_mapping["template"]["shapes"]["detail_tables"] = [
+        "없는표1", "없는표2", "없는표3", "없는표4", "없는표5"
+    ]
+    out = tmp_path / "out.pptx"
+    warns = Warnings()
+    report = build(data, bad_mapping, tmp_path, out, warns)
+
+    result = verify_output(out, data, bad_mapping, report["slides"])
+    assert result["ok"] is False
+    failed = {c["name"]: c for c in result["checks"] if not c["ok"]}
+    assert "상세 항목 수" in failed
+    assert "SCR001" in failed["상세 항목 수"]["detail"]
+    # 나머지 네 검사는 이 상황에서도 여전히 통과해야 한다 — 그래서 이 검사가
+    # 없으면 사고가 통째로 묻힌다는 리뷰 지적이 성립한다.
+    assert failed.keys() == {"상세 항목 수"}
+
+
 def test_verify_passes_for_good_output(tmp_path: Path):
     tpl = make_template_pptx(tmp_path / "t.pptx")
     make_png(tmp_path / "images" / "SCR001.png")
@@ -77,6 +139,31 @@ def test_verify_fails_size_check_when_template_missing(tmp_path: Path):
     assert "does-not-exist.pptx" in failed["슬라이드 크기"]["detail"]
     # 다른 검사는 여전히 정상이어야 한다 — 크기 검사만 실패로 좁혀졌는지 확인
     assert failed.keys() == {"슬라이드 크기"}
+
+
+def test_verify_detects_missing_title_for_screen(tmp_path: Path):
+    """화면명 반영 검사의 성공 경로만 지금까지 실행됐다 — 실패 경로(제목이 실제로
+    슬라이드 어디에도 없는 경우)는 아무 테스트도 거치지 않았다. screens.json에
+    빌드가 전혀 모르는 화면을 하나 더 끼워 넣어 재현한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "SCR001.png")
+    data = _data("images/SCR001.png")
+    out = tmp_path / "out.pptx"
+    report = build(data, _mapping(tpl), tmp_path, out, Warnings())
+
+    # 검증 시점에만 화면을 하나 추가한다 — build()가 만든 실제 출력물에는
+    # 이 화면에 해당하는 슬라이드가 존재하지 않는다.
+    data_with_ghost = _data("images/SCR001.png")
+    data_with_ghost["screens"].append(
+        {"id": "GHOST", "name": "존재하지 않는 화면", "images": [], "fields": {},
+         "details": []}
+    )
+
+    result = verify_output(out, data_with_ghost, _mapping(tpl), report["slides"])
+    assert result["ok"] is False
+    failed = {c["name"]: c for c in result["checks"] if not c["ok"]}
+    assert "화면명 반영" in failed
+    assert "존재하지 않는 화면" in failed["화면명 반영"]["detail"]
 
 
 def test_verify_detects_missing_image_for_screen(tmp_path: Path):

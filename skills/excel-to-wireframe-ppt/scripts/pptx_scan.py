@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from common import EMU_PER_INCH
 from pptx import Presentation
-
-EMU_PER_INCH = 914400
 
 
 def _shape_text(shape) -> str:

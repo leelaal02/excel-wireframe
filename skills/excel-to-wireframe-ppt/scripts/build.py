@@ -10,7 +10,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from common import Warnings, read_json, setup_stdio
+from common import Warnings, read_json, resolve_template_path, setup_stdio
 from pptx import Presentation
 from slide_clone import clone_slide
 from slide_fill import (
@@ -99,7 +99,9 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
         else:
             place_image(slide, anchor, work_dir / images[0])
 
-    tables = collect_tables(slide, shapes_cfg.get("detail_tables"), warns, scr["id"])
+    # 표 이름 검증은 build()가 소스 슬라이드를 상대로 한 번만 한다. 여기서 다시
+    # warns를 넘기면 화면(슬라이드) 수만큼 같은 shape-not-found 경고가 반복된다.
+    tables = collect_tables(slide, shapes_cfg.get("detail_tables"))
     if tables:
         fill_slots(tables, page, cols, text_key, clear_unused, warns, scr["id"])
 
@@ -107,12 +109,20 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
 def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
           warns: Warnings) -> dict:
     tpl = mapping["template"]
-    template_path = Path(tpl["file"])
-    if not template_path.is_absolute() and not template_path.exists():
-        template_path = Path(work_dir) / tpl["file"]
+    template_path = resolve_template_path(tpl, work_dir)
 
     prs = Presentation(str(template_path))
-    source_index = int(tpl.get("source_slide", 0))
+    source_slide = tpl.get("source_slide", 0)
+    if source_slide is None:
+        # analyze.py는 예시 슬라이드가 없는 템플릿에 source_slide: null과 함께
+        # mode: layout을 제안한다. 생성 단계는 예시 슬라이드 복제만 지원하므로
+        # int(None)이 던지는 원시 TypeError 대신 원인과 대안을 알려준다.
+        raise ValueError(
+            "template.source_slide가 없습니다 (mode: layout은 생성 단계에서 지원하지 "
+            "않습니다). 예시 슬라이드가 있는 템플릿을 --template으로 지정하거나, "
+            "--template을 생략해 기본 템플릿(default_template.py)을 쓰세요."
+        )
+    source_index = int(source_slide)
     src = prs.slides[source_index]
     originals = list(prs.slides)
 
@@ -127,11 +137,16 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
 
     for scr in screens_data.get("screens", []):
         screen_count += 1
+        # id는 SSOT의 핵심 키이지만 손으로 편집한 screens.json에는 빠질 수 있다.
+        # try 진입 전에 방어적으로 계산해 둬야, id가 없어서 나는 예외를 처리하는
+        # except 블록 안에서 scr["id"]가 또 KeyError를 내며 전체 빌드를 무너뜨리는
+        # 일이 없다 — 화면 단위 격리 보장이 바로 이 시나리오를 위해 있다.
+        scr_id = scr.get("id") or "(id 없음 #%d)" % screen_count
         try:
             pages = chunk_details(scr.get("details", []), slot_count)
             if len(pages) > 1:
-                split_ids.append(scr["id"])
-                warns.add(scr["id"], "slide-split",
+                split_ids.append(scr_id)
+                warns.add(scr_id, "slide-split",
                           "상세 %d건이 슬롯 %d개를 넘어 %d장으로 나눴습니다"
                           % (len(scr["details"]), slot_count, len(pages)))
             for i, page in enumerate(pages):
@@ -141,15 +156,15 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                            mapping, work_dir, warns)
                 made += 1
         except Exception as exc:
-            failed_ids.append(scr["id"])
-            warns.add(scr["id"], "screen-failed", "슬라이드 생성 실패: %s" % exc)
+            failed_ids.append(scr_id)
+            warns.add(scr_id, "screen-failed", "슬라이드 생성 실패: %s" % exc)
             if len(prs.slides) > len(originals) + made:
                 # 예외 직전에 만들어진 슬라이드가 남아 있다. 어디가 실패했는지
                 # 결과물에서 바로 보이도록 제목만 실패 표시로 바꾼다.
                 title_name = tpl.get("shapes", {}).get("title")
                 shp = find_shape(prs.slides[-1], title_name) if title_name else None
                 if shp is not None:
-                    set_text(shp, "[생성 실패] %s" % scr.get("name", scr["id"]))
+                    set_text(shp, "[생성 실패] %s" % scr.get("name", scr_id))
                 made += 1
 
     for slide in originals:
@@ -189,7 +204,7 @@ def main(argv: list[str] | None = None) -> int:
         print("실패한 화면: %s" % ", ".join(report["failed"]))
     if len(warns):
         print(warns.format())
-    result = verify_output(Path(args.out), screens_data, mapping, report["slides"])
+    result = verify_output(Path(args.out), screens_data, mapping, report["slides"], Path(args.work))
     print("검증: %s" % ("통과" if result["ok"] else "실패"))
     for c in result["checks"]:
         print("  [%s] %s — %s" % ("O" if c["ok"] else "X", c["name"], c["detail"]))

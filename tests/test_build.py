@@ -138,6 +138,58 @@ def test_build_isolates_screen_failure(tmp_path: Path):
     assert titles == ["이용기관 목록", "[생성 실패] 깨진 화면"]
 
 
+def test_build_isolates_screen_missing_id(tmp_path: Path):
+    """블로킹 발견 3: failed_ids.append(scr["id"])가 except 블록 안에 있으면,
+    id가 아예 빠진 screen dict 하나가 scr["id"] 참조에서 또 KeyError를 내며
+    빌드 전체를 무너뜨린다 — 결과물이 통째로 안 생긴다. 손으로 편집한
+    screens.json에서 id가 빠지는 것은 SSOT 설계가 정확히 보호해야 하는
+    시나리오다. 다른 화면들은 끝까지 완성되고 파일이 반드시 저장돼야 한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    data = _screens(2)
+    data["screens"].append(
+        {"name": "id 없는 화면", "images": [], "fields": {},
+         "details": [{"no": "1", "desc": "x"}]}
+    )
+    out = tmp_path / "out.pptx"
+    warns = Warnings()
+
+    report = build(data, _mapping(tpl), tmp_path, out, warns)
+
+    assert out.exists()
+    assert report["screens"] == 2
+    codes = [w["code"] for w in warns.to_list()]
+    assert "screen-failed" in codes
+
+    prs = Presentation(str(out))
+    titles = [
+        next(s for s in sl.shapes if s.name == "제목 13").text_frame.text
+        for sl in prs.slides
+    ]
+    assert "이용기관 목록" in titles
+
+
+def test_build_mode_layout_gives_readable_error_not_typeerror(tmp_path: Path):
+    """블로킹 발견 4: analyze.py가 예시 슬라이드 없는 템플릿에
+    source_slide: null과 mode: layout을 제안하고, 그 값을 그대로 mapping.json에
+    옮기면 int(None)이 raw TypeError를 던졌다. 원인과 대안을 알려주는
+    ValueError로 바뀌어야 한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    mapping = _mapping(tpl)
+    mapping["template"]["mode"] = "layout"
+    mapping["template"]["source_slide"] = None
+    out = tmp_path / "out.pptx"
+
+    try:
+        build(_screens(2), mapping, tmp_path, out, Warnings())
+        assert False, "ValueError가 나야 한다"
+    except TypeError:
+        raise AssertionError("원시 TypeError가 그대로 새고 있습니다")
+    except ValueError as exc:
+        msg = str(exc)
+        assert "source_slide" in msg
+        assert "--template" in msg or "기본 템플릿" in msg
+
+
 def test_build_does_not_import_openpyxl():
     import build as build_mod
     import inspect
