@@ -3,14 +3,14 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "excel-to-wireframe-ppt"
+SKILL = ROOT / "skills" / "excel-wireframe"
 
 
 def test_skill_md_has_frontmatter():
     text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     assert text.startswith("---\n")
     fm = text.split("---", 2)[1]
-    assert re.search(r"^name:\s*excel-to-wireframe-ppt\s*$", fm, re.M)
+    assert re.search(r"^name:\s*excel-wireframe\s*$", fm, re.M)
     assert re.search(r"^description:\s*\S", fm, re.M)
 
 

@@ -12,7 +12,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "excel-to-wireframe-ppt" / "scripts"
+SCRIPTS = ROOT / "skills" / "excel-wireframe" / "scripts"
 
 ALLOWED_CODES = {
     "no-image",

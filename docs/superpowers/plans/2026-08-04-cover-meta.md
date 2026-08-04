@@ -19,8 +19,8 @@
 
 ## Global Constraints
 
-- 프로젝트 루트: `C:\Users\user\Desktop\wireframe`. 스킬 본체는 `skills/excel-to-wireframe-ppt/`.
-- 스크립트는 `skills/excel-to-wireframe-ppt/scripts/`에 평면 배치. 패키지를 만들지 않는다. import는 `from common import ...` 형태.
+- 프로젝트 루트: `C:\Users\user\Desktop\wireframe`. 스킬 본체는 `skills/excel-wireframe/`.
+- 스크립트는 `skills/excel-wireframe/scripts/`에 평면 배치. 패키지를 만들지 않는다. import는 `from common import ...` 형태.
 - **`build.py`는 openpyxl을 import하지 않는다.** `tests/test_build.py`가 소스를 검사해 강제한다.
 - **경고 코드는 아홉 개뿐이다:** `no-image`, `no-detail`, `text-overflow`, `shape-not-found`, `slide-split`, `slot-shortage`, `screen-failed`, `image-convert-failed`, `orphan-row`. 표지를 못 찾은 상황에 맞는 코드가 없으므로 **새 코드를 만들지 않고** `extract.py`의 출력 한 줄로 알린다. `tests/test_warning_codes.py`가 이를 강제한다.
 - 모든 CLI 진입점은 `setup_stdio()`를 먼저 호출한다.
@@ -29,7 +29,7 @@
 - **우선순위: 화면별 `fields` > 문서 `meta`.**
 - `tests/fixtures.py`의 기존 생성기는 여러 테스트가 의존한다. 확장은 하되 형태를 바꾸지 않는다.
 - 테스트는 `pytest -q` 한 줄로 전부 돌아야 한다. `pytest.ini`가 `addopts = -q`를 설정하므로 명령줄 `-v`가 무시된다 — 개별 PASSED 줄이 필요하면 `--override-ini="addopts="`.
-- 스킬 파일을 수정하면 `C:\Users\user\.claude\skills\excel-to-wireframe-ppt\`에 재설치하고 `__pycache__`를 제외한다.
+- 스킬 파일을 수정하면 `C:\Users\user\.claude\skills\excel-wireframe\`에 재설치하고 `__pycache__`를 제외한다.
 
 ## 실측 데이터
 
@@ -69,7 +69,7 @@
 ### Task 1: 표지 메타 추출
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/xlsx_meta.py`
+- Create: `skills/excel-wireframe/scripts/xlsx_meta.py`
 - Test: `tests/test_xlsx_meta.py`
 
 **Interfaces:**
@@ -294,7 +294,7 @@ Expected: PASS (8 passed)
 ```bash
 export PYTHONIOENCODING=utf-8
 python - <<'PY'
-import sys; sys.path.insert(0, "skills/excel-to-wireframe-ppt/scripts")
+import sys; sys.path.insert(0, "skills/excel-wireframe/scripts")
 from openpyxl import load_workbook
 from common import Warnings
 from xlsx_meta import read_cover_meta
@@ -312,7 +312,7 @@ Expected: 두 파일 모두 `문서제목`, `부제`, `프로젝트명`, `전환
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_xlsx_meta.py skills/excel-to-wireframe-ppt/scripts/xlsx_meta.py
+git add tests/test_xlsx_meta.py skills/excel-wireframe/scripts/xlsx_meta.py
 git commit -m "feat: Excel 표지에서 문서 단위 정보 추출"
 ```
 
@@ -321,7 +321,7 @@ git commit -m "feat: Excel 표지에서 문서 단위 정보 추출"
 ### Task 2: extract.py 연결
 
 **Files:**
-- Modify: `skills/excel-to-wireframe-ppt/scripts/extract.py`
+- Modify: `skills/excel-wireframe/scripts/extract.py`
 - Test: `tests/test_extract.py` (기존 파일에 추가)
 
 **Interfaces:**
@@ -442,7 +442,7 @@ Expected: PASS. 기존 `test_extract_creates_screens_json`이 `meta["title"]`을
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_extract.py skills/excel-to-wireframe-ppt/scripts/extract.py
+git add tests/test_extract.py skills/excel-wireframe/scripts/extract.py
 git commit -m "feat: extract.py가 표지 정보를 meta에 담는다"
 ```
 
@@ -451,7 +451,7 @@ git commit -m "feat: extract.py가 표지 정보를 meta에 담는다"
 ### Task 3: build.py의 meta 채우기
 
 **Files:**
-- Modify: `skills/excel-to-wireframe-ppt/scripts/build.py`
+- Modify: `skills/excel-wireframe/scripts/build.py`
 - Test: `tests/test_build.py` (기존 파일에 추가)
 
 **Interfaces:**
@@ -560,7 +560,7 @@ Expected: PASS
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_build.py skills/excel-to-wireframe-ppt/scripts/build.py
+git add tests/test_build.py skills/excel-wireframe/scripts/build.py
 git commit -m "feat: build.py가 문서 meta를 동명 도형에 채운다"
 ```
 
@@ -569,10 +569,10 @@ git commit -m "feat: build.py가 문서 meta를 동명 도형에 채운다"
 ### Task 4: 기본 템플릿 도형 추가, analyze 연결, 문서 갱신
 
 **Files:**
-- Modify: `skills/excel-to-wireframe-ppt/scripts/default_template.py`
-- Modify: `skills/excel-to-wireframe-ppt/scripts/analyze.py`
-- Modify: `skills/excel-to-wireframe-ppt/references/mapping-schema.md`
-- Modify: `skills/excel-to-wireframe-ppt/SKILL.md`
+- Modify: `skills/excel-wireframe/scripts/default_template.py`
+- Modify: `skills/excel-wireframe/scripts/analyze.py`
+- Modify: `skills/excel-wireframe/references/mapping-schema.md`
+- Modify: `skills/excel-wireframe/SKILL.md`
 - Test: `tests/test_default_template.py`, `tests/test_analyze.py` (기존 파일에 추가)
 
 **Interfaces:**
@@ -705,7 +705,7 @@ Expected: PASS
 python -m pytest --override-ini="addopts=" -q
 export PYTHONIOENCODING=utf-8
 rm -rf work/meta-check && mkdir -p work/meta-check
-python skills/excel-to-wireframe-ppt/scripts/analyze.py --excel "짧은 버전.xlsx" --out work/meta-check/structure-report.json
+python skills/excel-wireframe/scripts/analyze.py --excel "짧은 버전.xlsx" --out work/meta-check/structure-report.json
 ```
 
 Expected: 전체 통과. 리포트의 `suggested_template_mapping.shapes`에 `문서제목`·`작성일`이 있다.
@@ -713,10 +713,10 @@ Expected: 전체 통과. 리포트의 `suggested_template_mapping.shapes`에 `�
 - [ ] **Step 7: 재설치와 커밋**
 
 ```bash
-rm -rf /c/Users/user/.claude/skills/excel-to-wireframe-ppt
-cp -r skills/excel-to-wireframe-ppt /c/Users/user/.claude/skills/
-find /c/Users/user/.claude/skills/excel-to-wireframe-ppt -name __pycache__ -type d -exec rm -rf {} +
-diff -r skills/excel-to-wireframe-ppt /c/Users/user/.claude/skills/excel-to-wireframe-ppt && echo "설치 일치"
+rm -rf /c/Users/user/.claude/skills/excel-wireframe
+cp -r skills/excel-wireframe /c/Users/user/.claude/skills/
+find /c/Users/user/.claude/skills/excel-wireframe -name __pycache__ -type d -exec rm -rf {} +
+diff -r skills/excel-wireframe /c/Users/user/.claude/skills/excel-wireframe && echo "설치 일치"
 
 git add skills/ tests/ docs/
 git commit -m "feat: 기본 템플릿 meta 도형과 문서 갱신"

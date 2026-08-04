@@ -41,7 +41,7 @@ Excel은 최초 임포트 소스이자 갱신 제안자일 뿐이고, PPT 생성
 ## 4. 아키텍처
 
 ```
-excel-to-wireframe-ppt/
+excel-wireframe/
 ├── SKILL.md                    # Claude가 읽는 절차서
 ├── scripts/
 │   ├── default_template.py     # 템플릿 미제공 시 쓸 기본 템플릿 생성

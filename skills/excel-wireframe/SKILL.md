@@ -1,5 +1,5 @@
 ---
-name: excel-to-wireframe-ppt
+name: excel-wireframe
 description: Excel로 작성된 화면설계서를 PowerPoint 화면설계서로 자동 생성한다. 사용자가 화면설계서, 화면정의서, 스크린 설계, 와이어프레임 문서를 Excel에서 PPT로 만들어 달라고 하거나, xlsx와 pptx 템플릿을 함께 건네며 "이 양식대로 만들어줘"라고 할 때 반드시 사용한다. 처음 보는 Excel 양식이어도 구조를 분석해 매핑을 도출하고, PPT 템플릿을 안 줘도 기본 템플릿을 만들어 진행하므로, 양식이 낯설거나 템플릿이 없다는 이유로 건너뛰지 말 것.
 ---
 

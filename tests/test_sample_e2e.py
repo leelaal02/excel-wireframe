@@ -7,7 +7,7 @@ from common import read_json, write_json
 from pptx import Presentation
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "excel-to-wireframe-ppt" / "scripts"
+SCRIPTS = ROOT / "skills" / "excel-wireframe" / "scripts"
 SAMPLE_XLSX = ROOT / "짧은 버전.xlsx"
 SAMPLE_PPTX = ROOT / "화면설계서_저작권_발행기관.정산처_발행기관관리_v1.0_20260427.pptx"
 

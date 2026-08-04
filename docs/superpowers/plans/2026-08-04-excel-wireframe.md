@@ -10,8 +10,8 @@
 
 ## Global Constraints
 
-- 프로젝트 루트: `C:\Users\user\Desktop\wireframe`. 스킬 본체는 `skills/excel-to-wireframe-ppt/`에서 개발하고, 최종 태스크에서 `C:\Users\user\.claude\skills\`로 복사한다.
-- 스크립트는 `skills/excel-to-wireframe-ppt/scripts/`에 평면 배치한다. 패키지(`__init__.py`)를 만들지 않는다. 모듈 간 import는 `from common import ...` 형태의 절대 import를 쓰고, 테스트는 `conftest.py`에서 `sys.path`에 scripts 디렉토리를 넣어 해결한다. CLI로도 모듈로도 같은 코드가 동작해야 하기 때문이다.
+- 프로젝트 루트: `C:\Users\user\Desktop\wireframe`. 스킬 본체는 `skills/excel-wireframe/`에서 개발하고, 최종 태스크에서 `C:\Users\user\.claude\skills\`로 복사한다.
+- 스크립트는 `skills/excel-wireframe/scripts/`에 평면 배치한다. 패키지(`__init__.py`)를 만들지 않는다. 모듈 간 import는 `from common import ...` 형태의 절대 import를 쓰고, 테스트는 `conftest.py`에서 `sys.path`에 scripts 디렉토리를 넣어 해결한다. CLI로도 모듈로도 같은 코드가 동작해야 하기 때문이다.
 - **모든 CLI 진입점은 첫 줄에서 `setup_stdio()`를 호출한다.** Windows 기본 코드페이지(cp949)에서 한글 출력이 깨지는 것을 샘플 분석 중 실제로 확인했다.
 - **`build.py`는 openpyxl을 import하지 않는다.** `mapping.json`의 `template`·`options` 섹션만 읽고 `excel` 섹션은 보지 않는다. 이 제약은 Task 12에서 테스트로 강제한다.
 - **`extract.py`는 기존 `screens.json`을 덮어쓰지 않는다.** 존재하면 `screens.new.json`에 쓰고 diff를 출력한다.
@@ -29,8 +29,8 @@
 
 | 파일 | 책임 |
 |---|---|
-| `skills/excel-to-wireframe-ppt/SKILL.md` | Claude가 읽는 절차서. 3단 파이프라인과 판단 지점 3곳 |
-| `skills/excel-to-wireframe-ppt/references/mapping-schema.md` | `mapping.json` / `screens.json` 필드 레퍼런스 |
+| `skills/excel-wireframe/SKILL.md` | Claude가 읽는 절차서. 3단 파이프라인과 판단 지점 3곳 |
+| `skills/excel-wireframe/references/mapping-schema.md` | `mapping.json` / `screens.json` 필드 레퍼런스 |
 | `scripts/common.py` | UTF-8 stdio, JSON 입출력, `Warnings` 수집기 |
 | `scripts/xlsx_scan.py` | Excel 구조 스캔(시트·셀·병합·이미지 앵커) → dict |
 | `scripts/pptx_scan.py` | PPTX 구조 스캔(슬라이드 크기·도형·표) → dict |
@@ -53,7 +53,7 @@
 
 **Files:**
 - Create: `requirements.txt`, `pytest.ini`, `.gitignore`, `CLAUDE.md`
-- Create: `skills/excel-to-wireframe-ppt/scripts/common.py`
+- Create: `skills/excel-wireframe/scripts/common.py`
 - Create: `tests/conftest.py`
 - Test: `tests/test_common.py`
 
@@ -124,7 +124,7 @@ Excel 화면설계서 → PPT 생성 Claude Skill을 만드는 저장소다.
 
 ## 코드 규칙
 
-- 스크립트는 `skills/excel-to-wireframe-ppt/scripts/`에 평면 배치. 패키지로 만들지 않는다.
+- 스크립트는 `skills/excel-wireframe/scripts/`에 평면 배치. 패키지로 만들지 않는다.
   모듈 간 import는 `from common import ...`.
 - 모든 CLI 진입점은 `setup_stdio()`를 먼저 호출한다. Windows cp949에서 한글이 깨진다.
 - 표 셀에 값을 쓸 때는 `slide_fill.set_cell_text`를 쓴다. 런을 새로 만들면 서식이 초기화된다.
@@ -146,8 +146,8 @@ python -m pytest tests/test_build.py -v  # 개별
 
 ## 문서
 
-- 설계: `docs/superpowers/specs/2026-08-03-excel-to-wireframe-ppt-design.md`
-- 계획: `docs/superpowers/plans/2026-08-04-excel-to-wireframe-ppt.md`
+- 설계: `docs/superpowers/specs/2026-08-03-excel-wireframe-design.md`
+- 계획: `docs/superpowers/plans/2026-08-04-excel-wireframe.md`
 ```
 
 - [ ] **Step 2: 실패하는 테스트 작성**
@@ -159,7 +159,7 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "excel-to-wireframe-ppt" / "scripts"
+SCRIPTS = ROOT / "skills" / "excel-wireframe" / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 ```
 
@@ -270,7 +270,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add .gitignore requirements.txt pytest.ini CLAUDE.md tests/conftest.py tests/test_common.py skills/excel-to-wireframe-ppt/scripts/common.py docs/
+git add .gitignore requirements.txt pytest.ini CLAUDE.md tests/conftest.py tests/test_common.py skills/excel-wireframe/scripts/common.py docs/
 git commit -m "feat: 프로젝트 초기화와 공용 유틸(UTF-8 stdio, JSON, 경고 수집)"
 ```
 
@@ -279,7 +279,7 @@ git commit -m "feat: 프로젝트 초기화와 공용 유틸(UTF-8 stdio, JSON, 
 ### Task 2: Excel 구조 스캔
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/xlsx_scan.py`
+- Create: `skills/excel-wireframe/scripts/xlsx_scan.py`
 - Create: `tests/fixtures.py`
 - Test: `tests/test_xlsx_scan.py`
 
@@ -488,7 +488,7 @@ Expected: PASS (3 passed)
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/fixtures.py tests/test_xlsx_scan.py skills/excel-to-wireframe-ppt/scripts/xlsx_scan.py
+git add tests/fixtures.py tests/test_xlsx_scan.py skills/excel-wireframe/scripts/xlsx_scan.py
 git commit -m "feat: Excel 구조 스캔과 테스트 픽스처 생성기"
 ```
 
@@ -497,8 +497,8 @@ git commit -m "feat: Excel 구조 스캔과 테스트 픽스처 생성기"
 ### Task 3: 기본 템플릿 생성과 PPTX 구조 스캔
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/default_template.py`
-- Create: `skills/excel-to-wireframe-ppt/scripts/pptx_scan.py`
+- Create: `skills/excel-wireframe/scripts/default_template.py`
+- Create: `skills/excel-wireframe/scripts/pptx_scan.py`
 - Modify: `tests/fixtures.py` (템플릿 픽스처 추가)
 - Test: `tests/test_default_template.py`, `tests/test_pptx_scan.py`
 
@@ -927,7 +927,7 @@ Expected: PASS (10 passed)
 - [ ] **Step 10: 기본 템플릿을 눈으로 확인**
 
 ```bash
-python -c "import sys; sys.path.insert(0,'skills/excel-to-wireframe-ppt/scripts'); from default_template import build_default_template; build_default_template('work/default-template.pptx')"
+python -c "import sys; sys.path.insert(0,'skills/excel-wireframe/scripts'); from default_template import build_default_template; build_default_template('work/default-template.pptx')"
 ```
 
 `work/default-template.pptx`를 PowerPoint로 열어 표가 슬라이드 밖으로 나가지 않고 이미지 자리와 겹치지 않는지 확인한다. 좌표 계산이 틀리면 모든 생성물이 같은 방식으로 어긋난다.
@@ -935,7 +935,7 @@ python -c "import sys; sys.path.insert(0,'skills/excel-to-wireframe-ppt/scripts'
 - [ ] **Step 11: 커밋**
 
 ```bash
-git add tests/fixtures.py tests/test_pptx_scan.py tests/test_default_template.py skills/excel-to-wireframe-ppt/scripts/pptx_scan.py skills/excel-to-wireframe-ppt/scripts/default_template.py
+git add tests/fixtures.py tests/test_pptx_scan.py tests/test_default_template.py skills/excel-wireframe/scripts/pptx_scan.py skills/excel-wireframe/scripts/default_template.py
 git commit -m "feat: 기본 템플릿 생성기와 PPTX 구조 스캔"
 ```
 
@@ -944,7 +944,7 @@ git commit -m "feat: 기본 템플릿 생성기와 PPTX 구조 스캔"
 ### Task 4: analyze.py CLI
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/analyze.py`
+- Create: `skills/excel-wireframe/scripts/analyze.py`
 - Test: `tests/test_analyze.py`
 
 **Interfaces:**
@@ -1130,7 +1130,7 @@ Expected: PASS (6 passed)
 
 ```bash
 cd /c/Users/user/Desktop/wireframe
-python skills/excel-to-wireframe-ppt/scripts/analyze.py \
+python skills/excel-wireframe/scripts/analyze.py \
   --excel "짧은 버전.xlsx" \
   --template "화면설계서_저작권_발행기관.정산처_발행기관관리_v1.0_20260427.pptx" \
   --out work/structure-report.json
@@ -1141,7 +1141,7 @@ Expected: 시트 4개(`표지`, `설계_B2BISMT1001`, `테스트_B2BISMT1001`, `
 템플릿 없는 경로도 확인한다:
 
 ```bash
-python skills/excel-to-wireframe-ppt/scripts/analyze.py \
+python skills/excel-wireframe/scripts/analyze.py \
   --excel "짧은 버전.xlsx" \
   --out work/no-template/structure-report.json
 ```
@@ -1151,7 +1151,7 @@ Expected: `템플릿 미제공 → 기본 템플릿 생성` 줄이 나오고 `13
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_analyze.py skills/excel-to-wireframe-ppt/scripts/analyze.py
+git add tests/test_analyze.py skills/excel-wireframe/scripts/analyze.py
 git commit -m "feat: analyze.py — 구조 리포트 생성 CLI"
 ```
 
@@ -1160,7 +1160,7 @@ git commit -m "feat: analyze.py — 구조 리포트 생성 CLI"
 ### Task 5: sheet-per-screen 레이아웃 읽기
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/xlsx_read.py`
+- Create: `skills/excel-wireframe/scripts/xlsx_read.py`
 - Test: `tests/test_xlsx_read_sheet.py`
 
 **Interfaces:**
@@ -1395,7 +1395,7 @@ Expected: PASS (5 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_xlsx_read_sheet.py skills/excel-to-wireframe-ppt/scripts/xlsx_read.py
+git add tests/test_xlsx_read_sheet.py skills/excel-wireframe/scripts/xlsx_read.py
 git commit -m "feat: sheet-per-screen 레이아웃 읽기"
 ```
 
@@ -1404,7 +1404,7 @@ git commit -m "feat: sheet-per-screen 레이아웃 읽기"
 ### Task 6: table 레이아웃 읽기
 
 **Files:**
-- Modify: `skills/excel-to-wireframe-ppt/scripts/xlsx_read.py`
+- Modify: `skills/excel-wireframe/scripts/xlsx_read.py`
 - Test: `tests/test_xlsx_read_table.py`
 
 **Interfaces:**
@@ -1582,7 +1582,7 @@ Expected: PASS (8 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_xlsx_read_table.py skills/excel-to-wireframe-ppt/scripts/xlsx_read.py
+git add tests/test_xlsx_read_table.py skills/excel-wireframe/scripts/xlsx_read.py
 git commit -m "feat: table 레이아웃 읽기(grouped-rows 상세 귀속)"
 ```
 
@@ -1591,7 +1591,7 @@ git commit -m "feat: table 레이아웃 읽기(grouped-rows 상세 귀속)"
 ### Task 7: 삽입 이미지 추출
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/xlsx_images.py`
+- Create: `skills/excel-wireframe/scripts/xlsx_images.py`
 - Test: `tests/test_xlsx_images.py`
 
 **Interfaces:**
@@ -1880,7 +1880,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_xlsx_images.py skills/excel-to-wireframe-ppt/scripts/xlsx_images.py
+git add tests/test_xlsx_images.py skills/excel-wireframe/scripts/xlsx_images.py
 git commit -m "feat: Excel 삽입 이미지 추출(openpyxl + zip 폴백)"
 ```
 
@@ -1889,7 +1889,7 @@ git commit -m "feat: Excel 삽입 이미지 추출(openpyxl + zip 폴백)"
 ### Task 8: extract.py CLI — SSOT 생성과 덮어쓰기 금지
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/extract.py`
+- Create: `skills/excel-wireframe/scripts/extract.py`
 - Test: `tests/test_extract.py`
 
 **Interfaces:**
@@ -2108,7 +2108,7 @@ Expected: PASS (4 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_extract.py skills/excel-to-wireframe-ppt/scripts/extract.py
+git add tests/test_extract.py skills/excel-wireframe/scripts/extract.py
 git commit -m "feat: extract.py — screens.json 생성과 덮어쓰기 금지 + diff"
 ```
 
@@ -2117,7 +2117,7 @@ git commit -m "feat: extract.py — screens.json 생성과 덮어쓰기 금지 +
 ### Task 9: 슬라이드 복제
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/slide_clone.py`
+- Create: `skills/excel-wireframe/scripts/slide_clone.py`
 - Test: `tests/test_slide_clone.py`
 
 **Interfaces:**
@@ -2244,7 +2244,7 @@ Expected: PASS (3 passed)
 ```bash
 python - <<'PY'
 import sys
-sys.path.insert(0, "skills/excel-to-wireframe-ppt/scripts")
+sys.path.insert(0, "skills/excel-wireframe/scripts")
 from pptx import Presentation
 from slide_clone import clone_slide
 
@@ -2265,7 +2265,7 @@ Expected: `shapes=8 pics=1 tables=5`, `image bytes = 183426`
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_slide_clone.py skills/excel-to-wireframe-ppt/scripts/slide_clone.py
+git add tests/test_slide_clone.py skills/excel-wireframe/scripts/slide_clone.py
 git commit -m "feat: 슬라이드 복제(XML deepcopy + rId 재매핑)"
 ```
 
@@ -2274,7 +2274,7 @@ git commit -m "feat: 슬라이드 복제(XML deepcopy + rId 재매핑)"
 ### Task 10: 도형 텍스트 주입과 서식 보존
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/slide_fill.py`
+- Create: `skills/excel-wireframe/scripts/slide_fill.py`
 - Test: `tests/test_slide_fill_text.py`
 
 **Interfaces:**
@@ -2444,7 +2444,7 @@ Expected: PASS (6 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_slide_fill_text.py skills/excel-to-wireframe-ppt/scripts/slide_fill.py
+git add tests/test_slide_fill_text.py skills/excel-wireframe/scripts/slide_fill.py
 git commit -m "feat: 도형 텍스트 주입(서식 보존, 줄바꿈 문단 분리)"
 ```
 
@@ -2453,7 +2453,7 @@ git commit -m "feat: 도형 텍스트 주입(서식 보존, 줄바꿈 문단 분
 ### Task 11: 이미지 배치와 표 슬롯 채우기
 
 **Files:**
-- Modify: `skills/excel-to-wireframe-ppt/scripts/slide_fill.py`
+- Modify: `skills/excel-wireframe/scripts/slide_fill.py`
 - Test: `tests/test_slide_fill_slots.py`
 
 **Interfaces:**
@@ -2670,7 +2670,7 @@ Expected: PASS (8 passed)
 - [ ] **Step 5: 커밋**
 
 ```bash
-git add tests/test_slide_fill_slots.py skills/excel-to-wireframe-ppt/scripts/slide_fill.py
+git add tests/test_slide_fill_slots.py skills/excel-wireframe/scripts/slide_fill.py
 git commit -m "feat: 이미지 배치와 다중 표 슬롯 채우기"
 ```
 
@@ -2679,7 +2679,7 @@ git commit -m "feat: 이미지 배치와 다중 표 슬롯 채우기"
 ### Task 12: build.py — 넘침 분할과 PPT 생성
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/build.py`
+- Create: `skills/excel-wireframe/scripts/build.py`
 - Test: `tests/test_build.py`
 
 **Interfaces:**
@@ -3064,7 +3064,7 @@ Expected: PASS (전체 통과)
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_build.py skills/excel-to-wireframe-ppt/scripts/build.py
+git add tests/test_build.py skills/excel-wireframe/scripts/build.py
 git commit -m "feat: build.py — PPT 생성, 넘침 분할, 화면별 예외 격리"
 ```
 
@@ -3073,8 +3073,8 @@ git commit -m "feat: build.py — PPT 생성, 넘침 분할, 화면별 예외 �
 ### Task 13: 생성물 검증과 실제 샘플 E2E
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/scripts/verify.py`
-- Modify: `skills/excel-to-wireframe-ppt/scripts/build.py` (검증 호출 추가)
+- Create: `skills/excel-wireframe/scripts/verify.py`
+- Modify: `skills/excel-wireframe/scripts/build.py` (검증 호출 추가)
 - Test: `tests/test_verify.py`, `tests/test_sample_e2e.py`
 
 **Interfaces:**
@@ -3163,7 +3163,7 @@ from common import read_json, write_json
 from pptx import Presentation
 
 ROOT = Path(__file__).resolve().parent.parent
-SCRIPTS = ROOT / "skills" / "excel-to-wireframe-ppt" / "scripts"
+SCRIPTS = ROOT / "skills" / "excel-wireframe" / "scripts"
 SAMPLE_XLSX = ROOT / "짧은 버전.xlsx"
 SAMPLE_PPTX = ROOT / "화면설계서_저작권_발행기관.정산처_발행기관관리_v1.0_20260427.pptx"
 
@@ -3374,7 +3374,7 @@ Expected: PASS (4 passed)
 
 ```bash
 python -m pytest -q
-git add tests/test_verify.py tests/test_sample_e2e.py skills/excel-to-wireframe-ppt/scripts/verify.py skills/excel-to-wireframe-ppt/scripts/build.py
+git add tests/test_verify.py tests/test_sample_e2e.py skills/excel-wireframe/scripts/verify.py skills/excel-wireframe/scripts/build.py
 git commit -m "feat: 생성물 검증과 실제 샘플 E2E 회귀 테스트"
 ```
 
@@ -3383,8 +3383,8 @@ git commit -m "feat: 생성물 검증과 실제 샘플 E2E 회귀 테스트"
 ### Task 14: SKILL.md, 레퍼런스, 설치
 
 **Files:**
-- Create: `skills/excel-to-wireframe-ppt/SKILL.md`
-- Create: `skills/excel-to-wireframe-ppt/references/mapping-schema.md`
+- Create: `skills/excel-wireframe/SKILL.md`
+- Create: `skills/excel-wireframe/references/mapping-schema.md`
 - Test: `tests/test_skill_docs.py`
 
 **Interfaces:**
@@ -3401,14 +3401,14 @@ from pathlib import Path
 import re
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILL = ROOT / "skills" / "excel-to-wireframe-ppt"
+SKILL = ROOT / "skills" / "excel-wireframe"
 
 
 def test_skill_md_has_frontmatter():
     text = (SKILL / "SKILL.md").read_text(encoding="utf-8")
     assert text.startswith("---\n")
     fm = text.split("---", 2)[1]
-    assert re.search(r"^name:\s*excel-to-wireframe-ppt\s*$", fm, re.M)
+    assert re.search(r"^name:\s*excel-wireframe\s*$", fm, re.M)
     assert re.search(r"^description:\s*\S", fm, re.M)
 
 
@@ -3442,7 +3442,7 @@ Expected: FAIL — `FileNotFoundError: ...SKILL.md`
 
 ```markdown
 ---
-name: excel-to-wireframe-ppt
+name: excel-wireframe
 description: Excel로 작성된 화면설계서를 PowerPoint 화면설계서로 자동 생성한다. 사용자가 화면설계서, 화면정의서, 스크린 설계, 와이어프레임 문서를 Excel에서 PPT로 만들어 달라고 하거나, xlsx와 pptx 템플릿을 함께 건네며 "이 양식대로 만들어줘"라고 할 때 반드시 사용한다. 처음 보는 Excel 양식이어도 구조를 분석해 매핑을 도출하고, PPT 템플릿을 안 줘도 기본 템플릿을 만들어 진행하므로, 양식이 낯설거나 템플릿이 없다는 이유로 건너뛰지 말 것.
 ---
 
@@ -3674,8 +3674,8 @@ Expected: PASS (전체 통과)
 
 ```bash
 mkdir -p /c/Users/user/.claude/skills
-cp -r skills/excel-to-wireframe-ppt /c/Users/user/.claude/skills/
-ls /c/Users/user/.claude/skills/excel-to-wireframe-ppt
+cp -r skills/excel-wireframe /c/Users/user/.claude/skills/
+ls /c/Users/user/.claude/skills/excel-wireframe
 ```
 
 Expected: `SKILL.md`, `references`, `scripts`가 보인다.
@@ -3683,7 +3683,7 @@ Expected: `SKILL.md`, `references`, `scripts`가 보인다.
 - [ ] **Step 6: 커밋**
 
 ```bash
-git add tests/test_skill_docs.py skills/excel-to-wireframe-ppt/SKILL.md skills/excel-to-wireframe-ppt/references/mapping-schema.md
+git add tests/test_skill_docs.py skills/excel-wireframe/SKILL.md skills/excel-wireframe/references/mapping-schema.md
 git commit -m "docs: SKILL.md와 매핑 레퍼런스 작성, 스킬 전역 설치"
 ```
 
