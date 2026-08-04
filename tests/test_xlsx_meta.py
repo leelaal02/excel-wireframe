@@ -137,6 +137,27 @@ def test_read_cover_meta_reads_multiple_pairs_in_one_row(tmp_path: Path):
     assert meta["상태"] == "진행중"
 
 
+def test_find_cover_sheet_ignores_non_cover_sheets_when_cover_is_missing(tmp_path: Path):
+    """실제 샘플은 표지, 설계_*, 테스트_*, 비교결과요약으로 구성된다. 표지가
+    없는 워크북이 들어오면 예전 규칙(sheet_include에 안 걸리는 첫 시트)은
+    테스트_*나 비교결과요약을 표지로 오인해 그 시트 텍스트를 meta에 채워
+    넣었다 — 경고 하나 없이. 이름 힌트가 없고 라벨-값 쌍도 2개 미만인
+    시트는 표지 후보에서 탈락해야 한다."""
+    wb = Workbook()
+    wb.active.title = "설계_SCR001"
+    wb.active["A1"] = "화면설계서 - SCR001 (목록)"
+    ws2 = wb.create_sheet("테스트_비고")
+    ws2["A1"] = "참고용 메모"
+    ws3 = wb.create_sheet("비교결과요약")
+    ws3["A1"] = "이전 버전과 비교"
+    p = tmp_path / "s.xlsx"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(p)
+    loaded = load_workbook(p)
+    assert find_cover_sheet(loaded, MAPPING) is None
+    assert read_cover_meta(loaded, MAPPING, Warnings()) == {}
+
+
 def test_read_cover_meta_ignores_rows_beyond_max_scan_row(tmp_path: Path):
     wb = Workbook()
     ws = wb.active

@@ -168,16 +168,6 @@ def test_extract_reports_when_cover_missing(tmp_path: Path, capsys):
     del wb["표지"]
     wb.save(xlsx)
 
-    # 픽스처에는 화면 시트가 아닌 "테스트_무시대상" 시트도 섞여 있어, 자동
-    # 탐지(첫 비-화면 시트)에 맡기면 표지 대신 그 시트를 표지로 오인해버려
-    # "표지 없음" 경로를 실제로 타지 못한다. find_cover_sheet는 명시 지정된
-    # 시트가 없을 때만 None을 반환하므로(tests/test_xlsx_meta.py의
-    # test_find_cover_sheet_returns_none_when_named_sheet_missing 참고),
-    # 표지를 명시 지정해 방금 지운 시트를 가리키게 한다.
-    mapping = read_json(mp)
-    mapping["excel"]["cover"] = {"sheet": "표지"}
-    write_json(mp, mapping)
-
     assert main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)]) == 0
     out = capsys.readouterr().out
     assert "표지" in out
@@ -185,15 +175,25 @@ def test_extract_reports_when_cover_missing(tmp_path: Path, capsys):
     assert set(meta.keys()) == {"source", "template"}
 
 
-def test_extract_reserved_keys_survive_cover_labels(tmp_path: Path):
+def test_extract_reserved_keys_always_come_from_arguments(tmp_path: Path, monkeypatch):
+    """read_cover_meta는 이미 source/template 라벨을 걸러내므로, 표지에 그
+    라벨을 심어봤자 extract.py의 `{**cover_meta, "source": ..., "template":
+    ...}` 전개 순서 자체는 한 번도 행사되지 않는다 — 순서를 뒤집어도(즉
+    cover_meta가 source/template을 덮어쓰게 바꿔도) 이 방식으로는 검출되지
+    않는다. read_cover_meta를 몽키패치해 예약 키가 섞인 dict를 강제로
+    돌려주게 만들어, extract.py가 그 값을 실제 인자값으로 덮어쓰는지
+    직접 확인한다."""
     xlsx, work, mp = _setup(tmp_path)
-    from openpyxl import load_workbook
-    wb = load_workbook(xlsx)
-    ws = wb["표지"]
-    ws["C7"] = "source"
-    ws["E7"] = "표지가 지정한 엉뚱한 값"
-    wb.save(xlsx)
 
-    main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
+    import extract
+
+    def fake_read_cover_meta(wb, mapping, warns):
+        return {"source": "가짜값.xlsx", "template": "가짜값.pptx", "프로젝트명": "진짜값"}
+
+    monkeypatch.setattr(extract, "read_cover_meta", fake_read_cover_meta)
+
+    assert main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)]) == 0
     meta = read_json(work / "screens.json")["meta"]
     assert meta["source"].endswith("s.xlsx")
+    assert meta["template"] == "t.pptx"
+    assert meta["프로젝트명"] == "진짜값"
