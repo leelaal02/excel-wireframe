@@ -96,9 +96,70 @@ def _read_sheet_per_screen(wb, cfg: dict, warns: Warnings) -> list[dict]:
     return screens
 
 
+def _read_table(wb, cfg: dict, warns: Warnings) -> list[dict]:
+    """1행 = 1화면 양식. 화면ID가 빈 행은 직전 화면의 상세 행으로 귀속시킨다."""
+    sheet_name = cfg.get("sheet")
+    ws = wb[sheet_name] if sheet_name else wb.worksheets[0]
+
+    id_col = column_index_from_string(cfg["columns"]["id"])
+    name_col = column_index_from_string(cfg["columns"]["name"])
+    field_cols = {
+        k: column_index_from_string(v) for k, v in (cfg.get("fields") or {}).items()
+    }
+    detail_cfg = cfg.get("detail") or {"mode": "none"}
+    detail_mode = detail_cfg.get("mode", "none")
+    detail_cols = {
+        k: column_index_from_string(v)
+        for k, v in (detail_cfg.get("columns") or {}).items()
+    }
+
+    screens: list[dict] = []
+    start = int(cfg["header_row"]) + 1
+    last = ws.max_row or 0
+    blank_streak = 0
+    for r in range(start, last + 1):
+        sid = _cell_text(ws, r, id_col)
+        name = _cell_text(ws, r, name_col)
+        detail_vals = {k: _cell_text(ws, r, c) for k, c in detail_cols.items()}
+        has_detail = any(detail_vals.values())
+
+        if not sid and not name and not has_detail:
+            blank_streak += 1
+            if blank_streak >= 3:
+                break
+            continue
+        blank_streak = 0
+
+        if sid:
+            screens.append(
+                {
+                    "id": sid,
+                    "name": name or sid,
+                    "sheet": ws.title,
+                    "images": [],
+                    "fields": {
+                        k: _cell_text(ws, r, c) for k, c in field_cols.items()
+                    },
+                    "details": [],
+                }
+            )
+        elif not screens:
+            warns.add(None, "orphan-row", "%d행에 화면ID가 없어 건너뜁니다" % r)
+            continue
+
+        # merged-cells 양식도 openpyxl로 읽으면 병합 범위의 둘째 행부터 빈 셀이므로
+        # grouped-rows와 결과가 같다. 같은 분기로 받는다.
+        if detail_mode in ("grouped-rows", "merged-cells") and has_detail:
+            screens[-1]["details"].append(detail_vals)
+
+    return screens
+
+
 def read_screens(wb, mapping: dict, warns: Warnings) -> list[dict]:
     cfg = mapping["excel"]
     layout = cfg.get("layout", "sheet-per-screen")
     if layout == "sheet-per-screen":
         return _read_sheet_per_screen(wb, cfg, warns)
+    if layout == "table":
+        return _read_table(wb, cfg, warns)
     raise ValueError("지원하지 않는 excel.layout: %s" % layout)
