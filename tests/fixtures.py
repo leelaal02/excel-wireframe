@@ -83,17 +83,25 @@ def make_table_xlsx(path: Path) -> Path:
 
 
 def make_template_pptx(path: Path, table_count: int = 5, rows_per_table: int = 4) -> Path:
-    """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 예시 슬라이드형 템플릿."""
+    """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 예시 슬라이드형 템플릿.
+
+    `build_default_template`이 만드는 빈 껍데기는 사용자가 채워 넣을 새 도형용
+    빈 텍스트를 갖는다(자리표시 문구가 빈 Excel에서 그대로 산출물에 찍히면
+    안 되므로). 이 픽스처는 그와 달리 *이미 예시로 채워진 실제 템플릿*을
+    흉내 낸다 — clone 판정(`suggest_mode`)과 텍스트 교체 테스트들이 진짜
+    화면설계서를 여는 상황을 가정하기 때문이다.
+    """
     build_default_template(
         path,
-        slide_width_emu=9906000,   # 10.83in — 실제 샘플과 동일
-        slide_height_emu=6858000,  # 7.50in
         table_count=table_count,
         rows_per_table=rows_per_table,
     )
     prs = Presentation(str(path))
     rename = {"제목": "제목 13", "화면ID": "텍스트 개체 틀 14", "화면이미지": "그림 18"}
+    example_text = {"제목": "화면명", "화면ID": "SCR000", "작성일": "2024-01-01"}
     for shp in prs.slides[0].shapes:
+        if shp.name in example_text and shp.has_text_frame:
+            shp.text_frame.paragraphs[0].runs[0].text = example_text[shp.name]
         if shp.name in rename:
             shp.name = rename[shp.name]
         elif shp.name.startswith("상세표"):
