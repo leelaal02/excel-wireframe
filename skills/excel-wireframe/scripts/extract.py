@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """2단계: mapping.json에 따라 Excel에서 screens.json과 이미지를 뽑는다.
 
-screens.json은 SSOT다. 이미 있으면 절대 덮어쓰지 않는다 — 사람이 손본 내용이
-Excel 재추출로 소실되면 안 되기 때문이다.
+screens.json은 중간 산출물이다. 매핑이나 템플릿만 고쳐 생성 단계를 반복할 때
+추출을 다시 하지 않아도 되게 하고, 결과가 이상할 때 추출과 배치 중 어느 쪽이
+틀렸는지 갈라 보게 한다. 사람이 손으로 편집하는 파일이 아니므로 재추출은
+그냥 덮어쓴다 — 추출 결과가 어긋나면 이 파일이 아니라 매핑을 고친다.
 """
 from __future__ import annotations
 
@@ -15,45 +17,6 @@ from openpyxl import load_workbook
 from xlsx_images import extract_images
 from xlsx_meta import read_cover_meta
 from xlsx_read import read_screens
-
-
-def _screen_key(scr: dict, index: int) -> str:
-    """screens.json은 사람이 손으로 편집한다 — id가 빠진 화면 dict가 섞여도
-    KeyError로 diff 전체를 무너뜨리지 않도록 인덱스 기반 대체 키를 쓴다.
-
-    index는 enumerate()의 0-based 값이므로 1을 더해 build.py의 표기(스크린
-    카운터를 증가시킨 뒤 쓰므로 1-based)와 맞춘다 — 같은 화면이 두 단계
-    출력에서 다른 번호로 불리면 사람이 대조하기 어렵다.
-    """
-    return scr.get("id") or "(id 없음 #%d)" % (index + 1)
-
-
-def diff_screens(old: dict, new: dict) -> list[str]:
-    old_map = {_screen_key(s, i): s for i, s in enumerate(old.get("screens", []))}
-    new_map = {_screen_key(s, i): s for i, s in enumerate(new.get("screens", []))}
-    lines: list[str] = []
-
-    for sid in new_map:
-        if sid not in old_map:
-            lines.append("+ 화면 추가: %s (%s)" % (sid, new_map[sid].get("name", "")))
-    for sid in old_map:
-        if sid not in new_map:
-            lines.append("- 화면 삭제: %s (%s)" % (sid, old_map[sid].get("name", "")))
-    for sid, new_scr in new_map.items():
-        old_scr = old_map.get(sid)
-        if old_scr is None:
-            continue
-        if old_scr.get("name") != new_scr.get("name"):
-            lines.append(
-                "~ %s 화면명: %s -> %s"
-                % (sid, old_scr.get("name", ""), new_scr.get("name", ""))
-            )
-        n_old, n_new = len(old_scr.get("details", [])), len(new_scr.get("details", []))
-        if n_old != n_new:
-            lines.append("~ %s 상세 건수: %d -> %d" % (sid, n_old, n_new))
-        elif old_scr.get("details") != new_scr.get("details"):
-            lines.append("~ %s 상세 내용 변경" % sid)
-    return lines
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,20 +61,8 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     target = work / "screens.json"
-    if target.exists():
-        new_path = work / "screens.new.json"
-        write_json(new_path, payload)
-        lines = diff_screens(read_json(target), payload)
-        print("screens.json이 이미 있어 덮어쓰지 않았습니다. -> %s" % new_path)
-        if lines:
-            print("변경 사항 %d건:" % len(lines))
-            for line in lines:
-                print("  " + line)
-        else:
-            print("변경 사항 없음")
-    else:
-        write_json(target, payload)
-        print("screens.json 생성: %s" % target)
+    write_json(target, payload)
+    print("screens.json 저장: %s" % target)
 
     total_details = sum(len(s["details"]) for s in screens)
     with_image = sum(1 for s in screens if s["images"])

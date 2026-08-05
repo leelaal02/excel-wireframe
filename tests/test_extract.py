@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from common import read_json, write_json
-from extract import _screen_key, diff_screens, main
+from extract import main
 from fixtures import make_sheet_per_screen_xlsx
 
 MAPPING = {
@@ -48,67 +48,19 @@ def test_extract_creates_screens_json(tmp_path: Path):
     assert data["meta"]["source"].endswith("s.xlsx")
 
 
-def test_extract_does_not_overwrite_existing(tmp_path: Path):
+def test_extract_overwrites_existing_screens_json(tmp_path: Path):
+    """screens.json은 중간 산출물이다. 재추출이 그냥 덮어쓴다."""
     xlsx, work, mp = _setup(tmp_path)
-    main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
 
-    edited = read_json(work / "screens.json")
-    edited["screens"][0]["name"] = "사람이 고친 이름"
-    write_json(work / "screens.json", edited)
+    write_json(work / "screens.json", {"meta": {}, "screens": [
+        {"id": "OLD", "name": "옛 화면", "images": [], "fields": {}, "details": []}
+    ]})
 
-    code = main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)])
-    assert code == 0
-    assert read_json(work / "screens.json")["screens"][0]["name"] == "사람이 고친 이름"
-    assert (work / "screens.new.json").exists()
-    assert read_json(work / "screens.new.json")["screens"][0]["name"] == "이용기관 목록"
+    assert main(["--excel", str(xlsx), "--mapping", str(mp), "--work", str(work)]) == 0
 
-
-def test_diff_screens_reports_changes():
-    old = {"screens": [{"id": "A", "name": "옛 이름", "details": [{"desc": "x"}]}]}
-    new = {"screens": [
-        {"id": "A", "name": "새 이름", "details": [{"desc": "x"}, {"desc": "y"}]},
-        {"id": "B", "name": "추가된 화면", "details": []},
-    ]}
-    lines = "\n".join(diff_screens(old, new))
-    assert "A" in lines and "새 이름" in lines
-    assert "B" in lines
-    assert "1 -> 2" in lines
-
-
-def test_diff_screens_empty_when_same():
-    same = {"screens": [{"id": "A", "name": "n", "details": []}]}
-    assert diff_screens(same, same) == []
-
-
-def test_screen_key_fallback_label_matches_build_py_numbering():
-    """회귀 5: build.py는 screen_count를 화면마다 증가시킨 뒤(1부터 시작) id
-    없는 화면의 폴백 라벨을 만든다. extract.py의 _screen_key는 enumerate()의
-    0-based 인덱스를 그대로 썼어서 같은 첫 화면이 build.py에서는
-    '(id 없음 #1)', extract.py에서는 '(id 없음 #0)'으로 서로 다르게
-    불렸다 — 두 단계 출력을 사람이 대조할 수 없었다."""
-    scr = {"name": "id 없는 화면"}
-
-    # build.py 쪽 공식 재현: for 루프에서 screen_count를 증가시킨 뒤(1-based)
-    # scr.get("id") or "(id 없음 #%d)" % screen_count 로 계산한다.
-    screen_count_for_first_screen = 1
-    build_style_label = scr.get("id") or "(id 없음 #%d)" % screen_count_for_first_screen
-
-    assert _screen_key(scr, 0) == build_style_label == "(id 없음 #1)"
-
-
-def test_diff_screens_reports_deletion():
-    """추가/변경 분기는 이미 돈다. 삭제 분기(옛 화면이 새 추출 결과에서
-    사라진 경우)는 지금까지 어떤 테스트도 실행하지 않았다."""
-    old = {"screens": [
-        {"id": "A", "name": "남는 화면", "details": []},
-        {"id": "B", "name": "삭제될 화면", "details": []},
-    ]}
-    new = {"screens": [{"id": "A", "name": "남는 화면", "details": []}]}
-
-    lines = diff_screens(old, new)
-    assert "- 화면 삭제: B (삭제될 화면)" in lines
-    assert not any(line.startswith("+") for line in lines)
-    assert not any(line.startswith("~") for line in lines)
+    data = read_json(work / "screens.json")
+    assert [s["id"] for s in data["screens"]] == ["SCR001"]
+    assert not (work / "screens.new.json").exists()
 
 
 def test_extract_warns_and_prints_on_zero_screens(tmp_path: Path):
