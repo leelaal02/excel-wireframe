@@ -4,10 +4,10 @@ Excel 화면설계서 → PPT 생성 Claude Skill을 만드는 저장소다.
 
 ## 설계 원칙
 
-- **`screens.json`이 SSOT다.** Excel은 임포트 소스일 뿐이다. `build.py`는 openpyxl을
-  import하지 않는다 — 이 제약은 `tests/test_build.py`가 소스를 검사해 강제한다.
-- **`extract.py`는 `screens.json`을 덮어쓰지 않는다.** 존재하면 `screens.new.json` + diff.
-  사람이 손본 내용이 재추출로 소실되면 안 된다.
+- **`screens.json`은 중간 산출물이다.** Excel은 임포트 소스, `screens.json`은 캐시다.
+  `extract.py`는 재추출 때 그냥 덮어쓴다 — 추출이 어긋나면 매핑을 고친다.
+  `build.py`는 openpyxl을 import하지 않는다 — 이 제약은 `tests/test_build.py`가
+  소스를 검사해 강제한다.
 - **화면 단위로 예외를 격리한다.** 한 화면이 실패해도 나머지는 완성하고, 실패는 경고로 남긴다.
 - **상세 표 번호는 Excel 값을 그대로 쓴다.** 스크린샷의 SoM 뱃지와 대응하므로 재부여 금지.
 - **슬라이드 크기를 바꾸지 않는다.** 템플릿 크기를 승계한다.
@@ -21,8 +21,11 @@ Excel 화면설계서 → PPT 생성 Claude Skill을 만드는 저장소다.
 - 모든 CLI 진입점은 `setup_stdio()`를 먼저 호출한다. Windows cp949에서 한글이 깨진다.
 - 표 셀에 값을 쓸 때는 `slide_fill.set_cell_text`를 쓴다. 런을 새로 만들면 서식이 초기화된다.
 - 슬라이드 복제는 `slide_clone.clone_slide`만 쓴다. rId 재매핑을 빼면 그림이 사라진다.
-- 테스트 템플릿 픽스처는 `default_template.build_default_template`을 재사용한다.
-  픽스처용 pptx를 따로 만들지 않는다.
+- 레이아웃으로 슬라이드를 만들 때는 `slide_layout`의 함수만 쓴다. placeholder를
+  직접 복제하면 date/footer/쪽번호가 빠지거나 빈 자리가 산출물에 남는다.
+- 테스트 템플릿 픽스처는 `default_template.build_default_template`으로 템플릿을 만든 뒤
+  `slide_layout`의 생성 경로로 예시 슬라이드를 한 장 얹는다. 픽스처용 pptx를 따로
+  만들지 않는다.
 - 경고 코드는 아홉 개뿐이다: `no-image`, `no-detail`, `text-overflow`, `shape-not-found`,
   `slide-split`, `slot-shortage`, `screen-failed`, `image-convert-failed`, `orphan-row`.
 

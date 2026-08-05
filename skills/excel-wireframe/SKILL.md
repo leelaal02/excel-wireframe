@@ -10,8 +10,10 @@ Excel 화면설계서를 받아 화면 페이지 PPT를 생성한다. PPT 템플
 
 ## 원칙
 
-`screens.json`이 SSOT다. Excel은 최초 임포트 소스일 뿐이고, PPT의 내용은 `screens.json`에서 온다.
-사람이 `screens.json`을 손봤을 수 있으므로 재추출이 그것을 덮어쓰지 않는다.
+`screens.json`은 Excel에서 뽑은 중간 산출물이다. 매핑이나 템플릿만 고쳐 생성 단계를
+반복할 때 추출을 다시 하지 않아도 되고, 결과가 이상할 때 추출과 배치 중 어디가
+틀렸는지 갈라 볼 수 있다. 재추출은 그냥 덮어쓴다 — 추출이 어긋나면 이 파일이 아니라
+매핑을 고친다.
 
 판단은 세 곳에서만 한다. 나머지는 스크립트가 결정론적으로 처리한다.
 
@@ -35,12 +37,15 @@ python -c "import pptx, openpyxl, PIL"
 python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.pptx> --out work/structure-report.json
 ```
 
-**템플릿을 안 받았으면 `--template`을 생략한다.** 기본 템플릿(16:9, 제목 바(`작성일`
-포함) + 이미지 자리 + 상세 표 5개 × 4행 + 표 아래 `문서제목`)이
-`work/default-template.pptx`로 만들어지고, 그에 맞는 매핑이
-리포트의 `suggested_template_mapping`에 담긴다. 템플릿이 있는지 사용자에게 먼저 묻지 말고,
-없으면 기본 템플릿으로 진행한 뒤 결과를 보여주며 "원하는 템플릿이 있으면 주시면 그대로
-맞춰 드립니다"라고 알린다. 빈손으로 되묻는 것보다 결과물을 보고 판단하는 편이 빠르다.
+**템플릿을 안 받았으면 `--template`을 생략한다.** 기본 템플릿이
+`work/default-template.pptx`로 만들어진다 — 슬라이드 10.83 × 7.50in에 화면 페이지용
+레이아웃(`화면`) 하나가 들어 있고, 상단 띠·구분선·하단 바 같은 껍데기는 그 레이아웃
+위에, 글자가 들어가는 자리(제목·화면ID·작성일·문서제목·쪽번호)는 placeholder로 있다.
+예시 슬라이드는 넣지 않는다 — 생성 단계가 레이아웃으로 슬라이드를 만들기 때문이다.
+그에 맞는 매핑이 리포트의 `suggested_template_mapping`에 담긴다. 템플릿이 있는지
+사용자에게 먼저 묻지 말고, 없으면 기본 템플릿으로 진행한 뒤 결과를 보여주며 "원하는
+템플릿이 있으면 주시면 그대로 맞춰 드립니다"라고 알린다. 빈손으로 되묻는 것보다
+결과물을 보고 판단하는 편이 빠르다.
 
 ### 2. [판단①] 매핑 작성과 확인
 
@@ -67,12 +72,7 @@ python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.p
 python <스킬>/scripts/extract.py --excel <입력.xlsx> --mapping work/mapping.json --work work
 ```
 
-`work/screens.json`과 `work/images/`가 생긴다. 이미 `screens.json`이 있으면
-`screens.new.json`에 쓰고 diff를 출력한다 — 그 경우 diff를 사용자에게 보여주고
-반영 여부를 물은 뒤, 반영하기로 하면 파일을 교체한다.
-
-재추출은 `screens.json`은 보호하지만 `work/images/` 아래 파일은 그대로 덮어쓴다.
-SSOT는 `screens.json`뿐이다 — 스크린샷을 손으로 교체했다면 재추출 시 원래 이미지로 되돌아간다는 것을 사용자에게 알린다.
+`work/screens.json`과 `work/images/`가 생긴다. 재추출은 둘 다 덮어쓴다.
 
 표지 시트의 프로젝트명·작성일 등은 `screens.json`의 `meta`로 들어가며, 템플릿에 같은
 이름의 도형(기본 템플릿의 `문서제목`·`작성일` 등)이 있으면 5단계에서 자동으로 채워진다.
@@ -103,7 +103,7 @@ python <스킬>/scripts/build.py --screens work/screens.json --mapping work/mapp
 | 표가 예시 텍스트 그대로 | `detail_tables` 이름이 틀렸다. 이름을 비우면 좌→우 자동 정렬로 대체된다. 이 경우 `shape-not-found` 경고가 함께 떠서 어떤 표 이름을 못 찾았는지 알려주므로, 눈에 보이는 증상만 보지 말고 경고 목록을 먼저 확인한다 |
 | 문서제목·작성일이 비었거나 `meta`에 엉뚱한 값이 들어감 | 표지 시트를 잘못 골랐다는 신호다. `mapping.excel.cover.sheet`로 표지 시트를 명시 지정하거나 `meta_overrides`로 직접 지정한다 |
 | 한글이 깨져 출력됨 | 콘솔 인코딩 문제다. `PYTHONIOENCODING=utf-8`을 설정하고 재실행한다 |
-| 템플릿에 예시 슬라이드가 없다고 나옴 | `analyze.py`가 `layout` 모드로 판정한 경우다. 빈 레이아웃에는 상세를 넣을 표가 없으므로, 사용자에게 예시 페이지가 있는 템플릿을 요청하거나 `--template` 없이 기본 템플릿으로 진행한다 |
+| 레이아웃을 찾지 못했다고 나옴 | `template.layout` 이름이 템플릿과 다르다. `structure-report.json`의 `layouts` 목록에서 실제 레이아웃 이름을 확인한다 |
 
 ## 하지 않는 것
 
@@ -112,3 +112,4 @@ python <스킬>/scripts/build.py --screens work/screens.json --mapping work/mapp
 - 표지·목차를 만들지 않는다. 화면 페이지만 만든다
 - 상세 표 번호를 재부여하지 않는다. Excel의 번호가 스크린샷 뱃지와 대응한다
 - 템플릿을 달라고 먼저 요구하지 않는다. 없으면 기본 템플릿으로 만들어 보여준 뒤 물어본다
+- 기본 템플릿에 제3자 저작권 표기를 넣지 않는다
