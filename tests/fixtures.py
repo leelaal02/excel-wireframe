@@ -8,7 +8,6 @@ from openpyxl import Workbook
 from openpyxl.drawing.image import Image as XLImage
 from PIL import Image as PILImage
 
-from default_template import build_default_template
 from pptx import Presentation
 from pptx.util import Emu
 
@@ -83,29 +82,61 @@ def make_table_xlsx(path: Path) -> Path:
 
 
 def make_template_pptx(path: Path, table_count: int = 5, rows_per_table: int = 4) -> Path:
-    """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 예시 슬라이드형 템플릿.
+    """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 *예시 슬라이드형* 템플릿.
 
-    `build_default_template`이 만드는 빈 껍데기는 사용자가 채워 넣을 새 도형용
-    빈 텍스트를 갖는다(자리표시 문구가 빈 Excel에서 그대로 산출물에 찍히면
-    안 되므로). 이 픽스처는 그와 달리 *이미 예시로 채워진 실제 템플릿*을
-    흉내 낸다 — clone 판정(`suggest_mode`)과 텍스트 교체 테스트들이 진짜
-    화면설계서를 여는 상황을 가정하기 때문이다.
+    기본 템플릿은 슬라이드가 0장이므로, 여기서 layout 모드의 슬라이드 생성
+    경로로 한 장을 만들어 예시가 채워진 실제 템플릿을 흉내 낸다 —
+    clone 판정(suggest_mode)과 텍스트 교체 테스트들이 그런 파일을 가정한다.
     """
-    build_default_template(
-        path,
-        table_count=table_count,
-        rows_per_table=rows_per_table,
+    from default_template import (
+        DEFAULT_LAYOUT_NAME,
+        DEFAULT_SHAPE_NAMES,
+        build_default_template,
+        default_template_mapping,
     )
+    from slide_layout import (
+        add_detail_table,
+        add_image_anchor,
+        find_layout,
+        inherit_placeholders,
+        name_placeholders,
+        split_content_area,
+        DEFAULT_CONTENT_AREA,
+    )
+    from common import Warnings
+
+    build_default_template(path)
     prs = Presentation(str(path))
+    layout = find_layout(prs, DEFAULT_LAYOUT_NAME)
+    tpl = default_template_mapping(path, table_count, rows_per_table)
+
+    slide = prs.slides.add_slide(layout)
+    inherit_placeholders(slide, layout)
+    name_placeholders(slide, tpl["placeholders"], tpl["shapes"],
+                      Warnings(), "fixture")
+    image_box, table_boxes = split_content_area(
+        DEFAULT_CONTENT_AREA, table_count, rows_per_table)
+    add_image_anchor(slide, image_box, DEFAULT_SHAPE_NAMES["image"])
+    for i, box in enumerate(table_boxes):
+        add_detail_table(slide, box, rows_per_table, "상세표%d" % (i + 1))
+
+    # 실제 샘플의 도형 이름과 예시 텍스트를 흉내 낸다
     rename = {"제목": "제목 13", "화면ID": "텍스트 개체 틀 14", "화면이미지": "그림 18"}
     example_text = {"제목": "화면명", "화면ID": "SCR000", "작성일": "2024-01-01"}
-    for shp in prs.slides[0].shapes:
+    for shp in slide.shapes:
         if shp.name in example_text and shp.has_text_frame:
-            shp.text_frame.paragraphs[0].runs[0].text = example_text[shp.name]
+            shp.text_frame.text = example_text[shp.name]
         if shp.name in rename:
             shp.name = rename[shp.name]
         elif shp.name.startswith("상세표"):
             shp.name = "표 %d" % (6 + int(shp.name[len("상세표"):]))
+
+    # 상세 표에 예시 문구를 넣는다 — clone 모드는 이것을 덮어써야 한다
+    for shp in slide.shapes:
+        if shp.has_table:
+            for r in range(len(shp.table.rows)):
+                shp.table.cell(r, 1).text_frame.text = "예시 설명"
+
     prs.save(str(path))
     return path
 

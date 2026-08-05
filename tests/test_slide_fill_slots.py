@@ -49,7 +49,8 @@ def test_fill_slots_keeps_unused_when_flag_off(tmp_path: Path):
     prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
     tables = collect_tables(prs.slides[0], None)
     fill_slots(tables, _details(2), COLS, "desc", False, Warnings(), "S1")
-    assert tables[4].table.cell(3, 1).text == "예시 설명 20"
+    # 안 쓴 슬롯은 템플릿의 예시 문구를 그대로 두어야 한다
+    assert tables[4].table.cell(3, 1).text == "예시 설명"
 
 
 def test_fill_slots_warns_on_shortage(tmp_path: Path):
