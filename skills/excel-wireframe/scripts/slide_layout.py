@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import copy
 
+from common import EMU_PER_INCH
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
+from pptx.util import Emu, Pt
+
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
 P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
@@ -110,3 +116,110 @@ def drop_empty_placeholders(slide) -> int:
         ph._element.getparent().remove(ph._element)
         removed += 1
     return removed
+
+
+# --- 실측 상수 (원본 화면설계서 화면 페이지) ---
+DEFAULT_CONTENT_AREA = (-12319, 337940, 9957099, 6331421)
+ROW_HEIGHTS = [382457, 268746, 496168, 268746]
+COL_WIDTH_RATIO = (160215, 1810920)
+MIN_IMAGE_HEIGHT_EMU = EMU_PER_INCH  # 1인치
+
+SLOT_BORDER = RGBColor(0xBB, 0xBB, 0xBB)
+SLOT_FILL = RGBColor(0xF5, 0xF6, 0xF8)
+
+
+def _row_heights(rows_per_table: int) -> list[int]:
+    """실측 행높이를 쓰되, 4행을 넘으면 마지막 값을 반복한다."""
+    if rows_per_table <= len(ROW_HEIGHTS):
+        return ROW_HEIGHTS[:rows_per_table]
+    tail = [ROW_HEIGHTS[-1]] * (rows_per_table - len(ROW_HEIGHTS))
+    return ROW_HEIGHTS + tail
+
+
+def split_content_area(area, table_count: int, rows_per_table: int):
+    """본문 영역을 이미지 자리와 상세표 자리로 나눈다.
+
+    표는 아래쪽에 붙이고 폭을 균등 분할한다. 원본의 표 간격은 0.01인치라
+    사실상 붙어 있으므로 간격을 두지 않는다. 이미지는 위쪽 나머지를 전부 쓴다.
+    """
+    left, top, width, height = area
+    table_h = sum(_row_heights(rows_per_table))
+    table_top = top + height - table_h
+    image_h = table_top - top
+
+    if image_h < MIN_IMAGE_HEIGHT_EMU:
+        max_rows = 0
+        while sum(_row_heights(max_rows + 1)) <= height - MIN_IMAGE_HEIGHT_EMU:
+            max_rows += 1
+        raise ValueError(
+            "rows_per_table=%d면 이미지 자리 높이가 %.2fin로 너무 작아집니다"
+            "(최소 %.2fin 필요). 이 content_area 높이(%.2fin)에서는 "
+            "rows_per_table을 %d 이하로 쓰세요."
+            % (rows_per_table, image_h / EMU_PER_INCH,
+               MIN_IMAGE_HEIGHT_EMU / EMU_PER_INCH, height / EMU_PER_INCH,
+               max_rows)
+        )
+
+    table_w = width // table_count
+    table_boxes = [
+        (left + table_w * i, table_top, table_w, table_h)
+        for i in range(table_count)
+    ]
+    return (left, top, width, image_h), table_boxes
+
+
+def add_image_anchor(slide, box, name: str):
+    """이미지가 들어갈 자리 사각형. place_image가 이것을 지우고 그림으로 바꾼다.
+
+    이미지가 없는 화면에서는 이 사각형이 그대로 남아 '여기에 스크린샷' 자리로
+    보인다 — clone 모드에서 템플릿의 이미지 자리 도형이 남는 것과 같은 동작이다.
+    """
+    left, top, width, height = box
+    shp = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Emu(left), Emu(top),
+                                 Emu(width), Emu(height))
+    shp.name = name
+    shp.fill.solid()
+    shp.fill.fore_color.rgb = SLOT_FILL
+    shp.line.color.rgb = SLOT_BORDER
+    shp.text_frame.text = ""
+    return shp
+
+
+def _format_cell(cell, size_pt, bold, align, anchor, margin, font=None):
+    cell.margin_left = Emu(margin)
+    cell.margin_right = Emu(margin)
+    cell.margin_top = Emu(margin)
+    cell.margin_bottom = Emu(0 if font else margin)
+    if anchor is not None:
+        cell.vertical_anchor = anchor
+    p = cell.text_frame.paragraphs[0]
+    p.alignment = align
+    run = p.add_run()
+    run.text = ""
+    run.font.size = Pt(size_pt)
+    run.font.bold = bold
+    if font:
+        run.font.name = font
+
+
+def add_detail_table(slide, box, rows_per_table: int, name: str):
+    """상세표 하나를 만들고 실측 서식을 적용한다. 셀은 비운 채로 둔다."""
+    left, top, width, height = box
+    frame = slide.shapes.add_table(rows_per_table, 2, Emu(left), Emu(top),
+                                   Emu(width), Emu(height))
+    frame.name = name
+    table = frame.table
+
+    ratio_total = sum(COL_WIDTH_RATIO)
+    no_w = width * COL_WIDTH_RATIO[0] // ratio_total
+    table.columns[0].width = Emu(no_w)
+    table.columns[1].width = Emu(width - no_w)
+    for ri, rh in enumerate(_row_heights(rows_per_table)):
+        table.rows[ri].height = Emu(rh)
+
+    for r in range(rows_per_table):
+        _format_cell(table.cell(r, 0), 6.5, True, PP_ALIGN.CENTER,
+                     MSO_ANCHOR.MIDDLE, 18000)
+        _format_cell(table.cell(r, 1), 7.0, False, PP_ALIGN.LEFT, None,
+                     9525, font="맑은 고딕")
+    return frame
