@@ -88,3 +88,25 @@ def test_suggested_mapping_carries_meta_shapes(tmp_path: Path):
     shapes = read_json(out)["suggested_template_mapping"]["shapes"]
     assert shapes["문서제목"] == "문서제목"
     assert shapes["작성일"] == "작성일"
+
+
+def test_analyze_suggests_layout_mode_mapping(tmp_path: Path):
+    from analyze import main
+    from common import read_json
+    from fixtures import make_sheet_per_screen_xlsx
+
+    xlsx = make_sheet_per_screen_xlsx(
+        tmp_path / "in.xlsx",
+        [{"id": "SCR001", "name": "목록", "image": False,
+          "details": [{"no": "1", "type": "버튼", "element": "[등록]",
+                       "desc": "등록한다", "pos": "우상단"}]}],
+    )
+    out = tmp_path / "report.json"
+    assert main(["--excel", str(xlsx), "--out", str(out)]) == 0
+
+    report = read_json(out)
+    assert report["template_generated"] is True
+    tpl = report["suggested_template_mapping"]
+    assert tpl["mode"] == "layout"
+    assert "content_area" in tpl
+    assert len(tpl["content_area"]) == 4

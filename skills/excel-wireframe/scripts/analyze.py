@@ -15,7 +15,7 @@ from pathlib import Path
 
 from common import setup_stdio, write_json
 from default_template import build_default_template, default_template_mapping
-from pptx_scan import scan_presentation, suggest_mode
+from pptx_scan import scan_layouts, scan_presentation, suggest_content_area, suggest_mode
 from xlsx_scan import scan_workbook
 
 
@@ -25,6 +25,7 @@ def build_report(excel_path: Path, template_path: Path) -> dict:
     return {
         "excel": excel,
         "template": template,
+        "layouts": scan_layouts(template_path),
         "suggestion": suggest_mode(template),
     }
 
@@ -52,7 +53,19 @@ def main(argv: list[str] | None = None) -> int:
     report = build_report(Path(args.excel), template_path)
     report["template_generated"] = generated
     if generated:
-        report["suggested_template_mapping"] = default_template_mapping(template_path)
+        from default_template import DEFAULT_LAYOUT_NAME
+        tpl_mapping = default_template_mapping(template_path)
+        layout_info = next(
+            (lay for lay in report["layouts"] if lay["name"] == DEFAULT_LAYOUT_NAME),
+            None,
+        )
+        if layout_info is not None:
+            tpl_mapping["content_area"] = suggest_content_area(
+                layout_info,
+                report["template"]["slide_width"],
+                report["template"]["slide_height"],
+            )
+        report["suggested_template_mapping"] = tpl_mapping
     write_json(out_path, report)
 
     sheets = report["excel"]["sheets"]

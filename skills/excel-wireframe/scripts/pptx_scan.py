@@ -58,6 +58,64 @@ def scan_presentation(path: Path) -> dict:
     }
 
 
+def scan_layouts(path: Path) -> list[dict]:
+    """모든 마스터의 레이아웃과 그 안의 자리·도형을 훑는다.
+
+    어느 레이아웃을 쓸지, 본문 영역을 어디로 잡을지 사람이 판단할 재료다.
+    """
+    prs = Presentation(str(path))
+    out = []
+    for mi, master in enumerate(prs.slide_masters):
+        for li, lay in enumerate(master.slide_layouts):
+            out.append({
+                "master": mi,
+                "index": li,
+                "name": lay.name,
+                "placeholders": [
+                    {
+                        "idx": ph.placeholder_format.idx,
+                        "type": str(ph.placeholder_format.type),
+                        "left": int(ph.left or 0),
+                        "top": int(ph.top or 0),
+                        "width": int(ph.width or 0),
+                        "height": int(ph.height or 0),
+                    }
+                    for ph in lay.placeholders
+                ],
+                "shapes": [
+                    _scan_shape(s) for s in lay.shapes if not s.is_placeholder
+                ],
+            })
+    return out
+
+
+def suggest_content_area(layout_info: dict, slide_width: int,
+                         slide_height: int) -> list[int]:
+    """레이아웃에서 이미지와 상세표를 놓을 만한 가로 띠를 고른다.
+
+    껍데기는 대개 상단과 하단에 가로로 깔린다. 그래서 완전한 빈 영역 탐색 대신
+    '슬라이드 폭의 절반 이상을 덮는 도형'만 장애물로 보고, 위아래에서 잠식된
+    만큼 깎는다. 추정이 빗나가도 mapping.json에서 고칠 수 있으므로 이 정도면
+    충분하다.
+    """
+    half = slide_width // 2
+    blockers = []
+    for s in layout_info["shapes"] + layout_info["placeholders"]:
+        w = s.get("width", 0)
+        if w >= half:
+            blockers.append((s.get("top", 0), s.get("top", 0) + s.get("height", 0)))
+
+    top = 0
+    bottom = slide_height
+    for b_top, b_bottom in blockers:
+        if b_bottom <= slide_height // 2:
+            top = max(top, b_bottom)      # 상단 껍데기
+        elif b_top >= slide_height // 2:
+            bottom = min(bottom, b_top)   # 하단 껍데기
+
+    return [0, int(top), int(slide_width), int(bottom - top)]
+
+
 def suggest_mode(report: dict) -> dict:
     """예시 슬라이드가 있으면 clone, 없으면 layout.
 
