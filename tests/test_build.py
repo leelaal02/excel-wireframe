@@ -433,3 +433,86 @@ def test_build_clone_mode_still_works(tmp_path: Path):
     out = tmp_path / "out.pptx"
     report = build(_screens(6), _mapping(tpl), tmp_path, out, Warnings())
     assert report["slides"] == 1
+
+
+def _screens_with_cover_date(date_text: str) -> dict:
+    d = _screens(3)
+    d["meta"]["작성일"] = date_text
+    return d
+
+
+def test_build_stamps_its_own_run_date(tmp_path: Path, monkeypatch):
+    """화면설계서의 작성일은 그 PPT를 만든 날이다.
+
+    Excel 표지의 작성일은 Excel을 쓴 날이라 다르다 — 실제 샘플에서 두 달
+    차이가 났다. 표지 값이 있어도 생성일이 이겨야 한다.
+    """
+    import build as build_mod
+    monkeypatch.setattr(build_mod, "_today", lambda: "2026-08-05")
+
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    build(_screens_with_cover_date("2026-06-25"), _layout_mapping(tpl),
+          tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name["작성일"].text_frame.text == "2026-08-05"
+
+
+def test_build_keeps_cover_date_when_date_field_disabled(tmp_path: Path,
+                                                         monkeypatch):
+    """options.date_field를 끄면 표지에서 읽은 값을 그대로 쓴다."""
+    import build as build_mod
+    monkeypatch.setattr(build_mod, "_today", lambda: "2026-08-05")
+
+    tpl = _layout_template(tmp_path / "t.pptx")
+    mapping = _layout_mapping(tpl)
+    mapping["options"]["date_field"] = None
+    out = tmp_path / "out.pptx"
+    build(_screens_with_cover_date("2026-06-25"), mapping, tmp_path, out,
+          Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name["작성일"].text_frame.text == "2026-06-25"
+
+
+def test_build_stamps_run_date_in_clone_mode_too(tmp_path: Path, monkeypatch):
+    """생성일 도장은 모드와 무관하다."""
+    import build as build_mod
+    monkeypatch.setattr(build_mod, "_today", lambda: "2026-08-05")
+
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    mapping = _mapping(tpl)
+    mapping["template"]["shapes"]["작성일"] = "작성일"
+    out = tmp_path / "out.pptx"
+    build(_screens_with_cover_date("2026-06-25"), mapping, tmp_path, out,
+          Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name["작성일"].text_frame.text == "2026-08-05"
+
+
+def test_build_does_not_mutate_the_caller_screens_data(tmp_path: Path,
+                                                       monkeypatch):
+    """생성일을 얹느라 넘겨받은 screens_data를 건드리면 안 된다."""
+    import build as build_mod
+    monkeypatch.setattr(build_mod, "_today", lambda: "2026-08-05")
+
+    tpl = _layout_template(tmp_path / "t.pptx")
+    screens = _screens_with_cover_date("2026-06-25")
+    build(screens, _layout_mapping(tpl), tmp_path, tmp_path / "out.pptx",
+          Warnings())
+
+    assert screens["meta"]["작성일"] == "2026-06-25"
+
+
+def test_today_returns_iso_date():
+    """_today는 표지 작성일과 같은 표기(YYYY-MM-DD)를 쓴다."""
+    from datetime import date
+
+    from build import _today
+
+    assert _today() == date.today().isoformat()

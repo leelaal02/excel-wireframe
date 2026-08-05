@@ -142,6 +142,7 @@ python-pptx 기본 템플릿이 갖고 있던 나머지 열 개 레이아웃은 
 | `detail_text_source` | `desc` | 상세 표에 넣을 `details` 키 |
 | `overflow` | `split` | 슬롯을 넘치면 다음 슬라이드로 분할하고 제목에 `(1/2)` 표시. `build.py`는 이 값을 읽지 않는다 — 분할은 항상 일어난다. 다른 값을 넣어도(예: `none`) 동작은 바뀌지 않는다. 이 필드는 향후 확장을 위해 자리만 있다 |
 | `clear_unused_slots` | `true` | 남는 슬롯의 예시 텍스트를 비운다 |
+| `date_field` | `작성일` | 이 이름의 자리에 **PPT를 만든 날**(`YYYY-MM-DD`)을 넣는다. 표지에서 읽은 작성일이 있어도 생성일이 이긴다 — 표지의 작성일은 Excel을 쓴 날이라 다르다(실제 샘플에서 두 달 벌어져 있었다). `null`로 끄면 표지 값(또는 `meta_overrides`로 지정한 값)이 그대로 간다 |
 
 ## screens.json
 

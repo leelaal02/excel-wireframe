@@ -7,6 +7,7 @@ extract가 meta를 만드는 것만 검증한다 — 실제 워크북 하나로 
 test_sample_e2e.py는 클론 직후 파일이 없으면 조용히 skip되므로, 픽스처만으로
 동작해 클론 직후에도 살아남는 테스트가 따로 필요하다.
 """
+from datetime import date
 from pathlib import Path
 
 from build import build
@@ -86,7 +87,42 @@ def test_extract_then_build_carries_cover_meta_into_shapes(tmp_path: Path):
     assert report["failed"] == []
 
     slide = Presentation(str(out)).slides[0]
-    date_shape = next(s for s in slide.shapes if s.name == "작성일")
-    assert date_shape.text_frame.text == "2026-06-11"
     title_shape = next(s for s in slide.shapes if s.name == "문서제목")
     assert title_shape.text_frame.text == "화면설계서"
+
+    # 작성일만은 표지 값이 아니라 PPT를 만든 날이 들어간다. 표지의 작성일은
+    # Excel을 쓴 날이라 다르다 — build._doc_meta가 생성일로 덮는다.
+    date_shape = next(s for s in slide.shapes if s.name == "작성일")
+    assert date_shape.text_frame.text == date.today().isoformat()
+
+
+def test_extract_then_build_keeps_cover_date_when_date_field_disabled(
+    tmp_path: Path,
+):
+    """options.date_field를 끄면 표지에서 읽은 작성일이 그대로 간다."""
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SPEC)
+    wb = load_workbook(xlsx)
+    cover = wb["표지"]
+    cover["C7"] = "프로젝트명"
+    cover["E7"] = "통합관리시스템"
+    cover["C8"] = "작성일"
+    cover["E8"] = "2026-06-11"
+    wb.save(xlsx)
+
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    work = tmp_path / "work"
+    mapping_path = work / "mapping.json"
+    mapping = _mapping(tpl)
+    mapping["options"]["date_field"] = None
+    write_json(mapping_path, mapping)
+
+    assert extract_main(["--excel", str(xlsx), "--mapping", str(mapping_path),
+                         "--work", str(work)]) == 0
+
+    screens_data = read_json(work / "screens.json")
+    out = work / "output" / "화면설계서.pptx"
+    build(screens_data, read_json(mapping_path), work, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    date_shape = next(s for s in slide.shapes if s.name == "작성일")
+    assert date_shape.text_frame.text == "2026-06-11"

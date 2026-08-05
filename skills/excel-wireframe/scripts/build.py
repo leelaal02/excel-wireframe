@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import date
 from pathlib import Path
 
 from common import Warnings, read_json, resolve_template_path, setup_stdio
@@ -100,6 +101,31 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id):
         name = names[i] if i < len(names) else "상세표%d" % (i + 1)
         add_detail_table(slide, box, rows, name)
     return slide
+
+
+def _today() -> str:
+    """생성일. 표지 작성일과 같은 표기(YYYY-MM-DD)를 쓴다."""
+    return date.today().isoformat()
+
+
+def _doc_meta(screens_data: dict, mapping: dict) -> dict:
+    """문서 meta에 생성일을 얹는다.
+
+    화면설계서의 '작성일'은 그 PPT를 만든 날이다. Excel 표지의 작성일은
+    Excel을 쓴 날이라 다르다 — 실제 샘플에서 두 달이 벌어져 있었다.
+    그래서 표지 값이 있어도 생성일이 이긴다.
+
+    표지 값을 그대로 쓰거나 특정 날짜를 박고 싶으면 options.date_field를
+    null로 꺼라. 그러면 표지에서 읽은 값(또는 meta_overrides로 지정한 값)이
+    그대로 간다.
+
+    넘겨받은 screens_data는 건드리지 않는다 — 호출자의 것이다.
+    """
+    meta = dict(screens_data.get("meta") or {})
+    field = mapping.get("options", {}).get("date_field", "작성일")
+    if field:
+        meta[field] = _today()
+    return meta
 
 
 def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
@@ -220,6 +246,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     split_ids: list[str] = []
     failed_ids: list[str] = []
     screen_count = 0
+    doc_meta = _doc_meta(screens_data, mapping)
 
     for scr in screens_data.get("screens", []):
         screen_count += 1
@@ -243,7 +270,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                     slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,
                            page_title(scr["name"], i, len(pages)),
-                           mapping, work_dir, warns, screens_data.get("meta"))
+                           mapping, work_dir, warns, doc_meta)
                 if mode == "layout":
                     drop_empty_placeholders(slide)
                 made += 1
