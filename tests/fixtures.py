@@ -131,11 +131,19 @@ def make_template_pptx(path: Path, table_count: int = 5, rows_per_table: int = 4
         elif shp.name.startswith("상세표"):
             shp.name = "표 %d" % (6 + int(shp.name[len("상세표"):]))
 
-    # 상세 표에 예시 문구를 넣는다 — clone 모드는 이것을 덮어써야 한다
-    for shp in slide.shapes:
-        if shp.has_table:
-            for r in range(len(shp.table.rows)):
-                shp.table.cell(r, 1).text_frame.text = "예시 설명"
+    # 상세 표에 번호와 예시 문구를 넣는다 — clone 모드는 이것을 덮어써야 한다.
+    # 슬롯마다 *다른* 값을 써야 한다: 20칸에 같은 문자열을 넣으면 "안 쓴 슬롯을
+    # 비웠는가"를 보는 테스트가 아무 일도 안 일어난 경우와 구별하지 못한다.
+    # 번호 열까지 채우는 이유도 같다.
+    # add_detail_table이 만들어 둔 빈 런에 글자만 넣는다 — text_frame.text에
+    # 대입하면 런이 새로 생기면서 실측 서식(6.5/7pt, 맑은 고딕)이 날아간다.
+    tables = sorted((s for s in slide.shapes if s.has_table), key=lambda s: s.left)
+    for i, shp in enumerate(tables):
+        for r in range(len(shp.table.rows)):
+            n = i * rows_per_table + r + 1
+            shp.table.cell(r, 0).text_frame.paragraphs[0].runs[0].text = str(n)
+            shp.table.cell(r, 1).text_frame.paragraphs[0].runs[0].text = (
+                "예시 설명 %d" % n)
 
     prs.save(str(path))
     return path

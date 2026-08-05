@@ -9,6 +9,7 @@ from default_template import (
     default_template_mapping,
 )
 from pptx import Presentation
+from slide_layout import P_NS
 
 MEASURED_PLACEHOLDERS = {
     0: (3722514, 0, 1260000, 144000),
@@ -90,6 +91,17 @@ def test_default_template_id_background_sits_behind_id_text(tmp_path: Path):
     ph_name = next(s.name for s in lay.shapes
                    if s.is_placeholder and s.placeholder_format.idx == 1)
     assert order.index("화면ID배경") < order.index(ph_name)
+
+
+def test_default_template_layout_shape_ids_are_unique(tmp_path: Path):
+    """cNvPr/@id는 한 파트 안에서 유일해야 한다 — 겹치면 PowerPoint가 파일을
+    열 때 복구를 요구한다. 껍데기 도형을 임시 슬라이드에서 deepcopy로 이식할 때
+    슬라이드에서 매겨진 id가 따라와 레이아웃 placeholder의 id와 겹쳤다."""
+    lay = _layout(build_default_template(tmp_path / "d.pptx"))
+    ids = [el.get("id") for el
+           in lay.shapes._spTree.iter("{%s}cNvPr" % P_NS)]
+    dupes = sorted({i for i in ids if ids.count(i) > 1})
+    assert dupes == [], "중복된 cNvPr/@id: %s" % dupes
 
 
 def test_default_template_carries_no_third_party_copyright(tmp_path: Path):

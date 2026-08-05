@@ -85,9 +85,7 @@ def test_clone_survives_save_and_reload(tmp_path: Path):
     last = chk.slides[-1]
     tables = [s for s in last.shapes if s.has_table]
     assert len(tables) == 5
-    # 표 내용이 복제와 저장/재로드를 거쳐 살아남는지 본다. 픽스처가 심는 예시
-    # 문구는 설명 열(1)에 있다 — 번호 열은 빌드가 Excel의 상세 번호로 채운다.
-    assert tables[0].table.cell(0, 1).text == "예시 설명"
+    assert tables[0].table.cell(0, 0).text == "1"
 
 
 def test_clone_twice_produces_three_slides(tmp_path: Path):

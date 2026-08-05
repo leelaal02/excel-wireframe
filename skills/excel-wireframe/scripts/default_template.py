@@ -22,6 +22,7 @@ from pptx import Presentation
 from pptx.enum.dml import MSO_THEME_COLOR
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.util import Emu
+from slide_layout import P_NS
 
 DEFAULT_LAYOUT_NAME = "화면"
 
@@ -114,8 +115,16 @@ def build_default_template(
     tmp = prs.slides.add_slide(prs.slide_layouts[6])
     for name in SHELL_ORDER:
         _accent_rect(tmp.shapes, name, _scaled(MEASURED_SHELL[name], sx, sy))
+    spTree = layout.shapes._spTree
     for shp in list(tmp.shapes):
-        layout.shapes._spTree.append(copy.deepcopy(shp._element))
+        new_sp = copy.deepcopy(shp._element)
+        # 임시 슬라이드에서 매겨진 cNvPr/@id를 그대로 들고 오면 안 된다. id는
+        # 한 파트 안에서 유일해야 하는데(OOXML 규칙), 임시 슬라이드도 레이아웃도
+        # 2부터 번호를 매기므로 레이아웃 placeholder의 id와 그대로 겹친다 —
+        # 겹치면 PowerPoint가 파일을 열 때 복구를 요구한다. 도형을 하나 붙일
+        # 때마다 다시 계산해야 이식하는 도형끼리도 겹치지 않는다.
+        new_sp.find(".//{%s}cNvPr" % P_NS).set("id", str(spTree.max_shape_id + 1))
+        spTree.append(new_sp)
     _drop_slide(prs, tmp)
 
     # 2) placeholder를 실측 자리로 옮긴다. 껍데기 뒤에 붙어야 위에 그려진다.
