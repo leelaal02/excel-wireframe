@@ -169,13 +169,14 @@ def test_build_isolates_screen_missing_id(tmp_path: Path):
 
 
 def test_build_mode_layout_gives_readable_error_not_typeerror(tmp_path: Path):
-    """블로킹 발견 4: analyze.py가 예시 슬라이드 없는 템플릿에
-    source_slide: null과 mode: layout을 제안하고, 그 값을 그대로 mapping.json에
-    옮기면 int(None)이 raw TypeError를 던졌다. 원인과 대안을 알려주는
-    ValueError로 바뀌어야 한다."""
+    """블로킹 발견 4: source_slide: null인 채로 clone 모드로 빌드를 시도하면
+    int(None)이 raw TypeError를 던졌다. 원인과 대안을 알려주는 ValueError로
+    바뀌어야 한다. (mode: layout + source_slide: null 조합은 이제 실제로
+    지원되는 정상 경로다 — test_build_layout_mode_* 테스트들이 그 경로를
+    검증한다. 이 테스트는 clone 모드에서 source_slide 자체가 없는 경우만
+    다룬다.)"""
     tpl = make_template_pptx(tmp_path / "t.pptx")
     mapping = _mapping(tpl)
-    mapping["template"]["mode"] = "layout"
     mapping["template"]["source_slide"] = None
     out = tmp_path / "out.pptx"
 
@@ -249,3 +250,138 @@ def test_build_meta_does_not_override_title_shape(tmp_path: Path):
     slide = Presentation(str(out)).slides[0]
     shp = next(s for s in slide.shapes if s.name == "제목 13")
     assert shp.text_frame.text == "이용기관 목록"
+
+
+from pptx.util import Emu
+
+
+def _layout_template(path: Path) -> Path:
+    """placeholder만 있는 레이아웃형 템플릿 (예시 슬라이드 없음)."""
+    prs = Presentation()
+    prs.slide_width = Emu(9906000)
+    prs.slide_height = Emu(6858000)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(str(path))
+    return path
+
+
+def _layout_mapping(template: Path) -> dict:
+    return {
+        "version": 1,
+        "excel": {"layout": "sheet-per-screen"},
+        "template": {
+            "file": str(template),
+            "mode": "layout",
+            "layout": "Title and Content",
+            "placeholders": {"title": 0, "screen_id": 1, "작성일": 10,
+                             "문서제목": 11},
+            "shapes": {
+                "title": "제목",
+                "screen_id": "화면ID",
+                "image": "화면이미지",
+                "작성일": "작성일",
+                "문서제목": "문서제목",
+                "detail_tables": ["상세표1", "상세표2", "상세표3",
+                                  "상세표4", "상세표5"],
+            },
+            "content_area": [-12319, 337940, 9957099, 6331421],
+            "detail_tables": {"count": 5, "rows": 4},
+            "table_columns": {"no": 0, "text": 1},
+        },
+        "options": {
+            "detail_text_source": "desc",
+            "overflow": "split",
+            "clear_unused_slots": True,
+        },
+    }
+
+
+def test_build_layout_mode_creates_slides(tmp_path: Path):
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    report = build(_screens(6), _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    assert report["slides"] == 1
+    slide = Presentation(str(out)).slides[0]
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name["제목"].text_frame.text == "이용기관 목록"
+    assert by_name["화면ID"].text_frame.text == "SCR001"
+
+
+def test_build_layout_mode_fills_detail_tables(tmp_path: Path):
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    build(_screens(6), _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    tables = [s for s in slide.shapes if s.has_table]
+    assert len(tables) == 5
+    first = next(t for t in tables if t.name == "상세표1").table
+    assert first.cell(0, 0).text == "1"
+    assert first.cell(0, 1).text == "설명 1"
+
+
+def test_build_layout_mode_splits_when_details_exceed_slots(tmp_path: Path):
+    """슬롯은 5표 × 4행 = 20개다."""
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    warns = Warnings()
+    report = build(_screens(25), _layout_mapping(tpl), tmp_path, out, warns)
+
+    assert report["slides"] == 2
+    assert report["split"] == ["SCR001"]
+    assert any(w["code"] == "slide-split" for w in warns.to_list())
+
+
+def test_build_layout_mode_places_image(tmp_path: Path):
+    img = make_png(tmp_path / "images" / "SCR001.png")
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    build(_screens(3, image="images/SCR001.png"), _layout_mapping(tpl),
+          tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    assert any("PICTURE" in str(s.shape_type) for s in slide.shapes)
+    assert not any(s.name == "화면이미지" for s in slide.shapes)
+
+
+def test_build_layout_mode_drops_empty_placeholders(tmp_path: Path):
+    """값이 없는 문서제목 placeholder가 산출물에 남으면 안 된다."""
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    screens = _screens(3)
+    screens["meta"] = {"source": "s.xlsx", "template": "t.pptx"}  # 문서제목 없음
+    build(screens, _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    assert "문서제목" not in [s.name for s in slide.shapes]
+
+
+def test_build_layout_mode_fills_doc_title_from_meta(tmp_path: Path):
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    screens = _screens(3)
+    screens["meta"]["문서제목"] = "발행기관관리"
+    build(screens, _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name["문서제목"].text_frame.text == "발행기관관리"
+
+
+def test_build_layout_mode_raises_for_unknown_layout(tmp_path: Path):
+    import pytest
+    tpl = _layout_template(tmp_path / "t.pptx")
+    mapping = _layout_mapping(tpl)
+    mapping["template"]["layout"] = "없는레이아웃"
+    with pytest.raises(ValueError) as exc:
+        build(_screens(3), mapping, tmp_path, tmp_path / "out.pptx", Warnings())
+    assert "없는레이아웃" in str(exc.value)
+
+
+def test_build_clone_mode_still_works(tmp_path: Path):
+    """layout 모드를 더해도 clone 경로는 그대로여야 한다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    report = build(_screens(6), _mapping(tpl), tmp_path, out, Warnings())
+    assert report["slides"] == 1

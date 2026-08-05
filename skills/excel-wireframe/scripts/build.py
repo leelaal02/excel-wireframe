@@ -21,6 +21,16 @@ from slide_fill import (
     place_image,
     set_text,
 )
+from slide_layout import (
+    DEFAULT_CONTENT_AREA,
+    add_detail_table,
+    add_image_anchor,
+    drop_empty_placeholders,
+    find_layout,
+    inherit_placeholders,
+    name_placeholders,
+    split_content_area,
+)
 from verify import verify_output
 
 
@@ -53,6 +63,33 @@ def _drop_slide(prs, slide) -> None:
             prs.part.drop_rel(sld_id.rId)
             xml_slides.remove(sld_id)
             return
+
+
+def _new_layout_slide(prs, layout, tpl, warns, screen_id):
+    """레이아웃으로 슬라이드를 만들고, 레이아웃에 없는 자리만 채워 넣는다.
+
+    placeholder에 mapping이 정한 이름을 붙이므로, 값을 채우는 _fill_page는
+    clone 모드와 똑같은 코드를 쓴다.
+    """
+    shapes_cfg = tpl.get("shapes", {})
+    tables_cfg = tpl.get("detail_tables", {}) or {}
+    count = int(tables_cfg.get("count", 5))
+    rows = int(tables_cfg.get("rows", 4))
+    area = tuple(tpl.get("content_area") or DEFAULT_CONTENT_AREA)
+
+    slide = prs.slides.add_slide(layout)
+    inherit_placeholders(slide, layout)
+    name_placeholders(slide, tpl.get("placeholders", {}), shapes_cfg,
+                      warns, screen_id)
+
+    image_box, table_boxes = split_content_area(area, count, rows)
+    add_image_anchor(slide, image_box, shapes_cfg.get("image", "화면이미지"))
+
+    names = shapes_cfg.get("detail_tables") or []
+    for i, box in enumerate(table_boxes):
+        name = names[i] if i < len(names) else "상세표%d" % (i + 1)
+        add_detail_table(slide, box, rows, name)
+    return slide
 
 
 def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
@@ -120,23 +157,37 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     template_path = resolve_template_path(tpl, work_dir)
 
     prs = Presentation(str(template_path))
-    source_slide = tpl.get("source_slide", 0)
-    if source_slide is None:
-        # analyze.py는 예시 슬라이드가 없는 템플릿에 source_slide: null과 함께
-        # mode: layout을 제안한다. 생성 단계는 예시 슬라이드 복제만 지원하므로
-        # int(None)이 던지는 원시 TypeError 대신 원인과 대안을 알려준다.
-        raise ValueError(
-            "template.source_slide가 없습니다 (mode: layout은 생성 단계에서 지원하지 "
-            "않습니다). 예시 슬라이드가 있는 템플릿을 --template으로 지정하거나, "
-            "--template을 생략해 기본 템플릿(default_template.py)을 쓰세요."
-        )
-    source_index = int(source_slide)
-    src = prs.slides[source_index]
+    mode = tpl.get("mode", "clone")
     originals = list(prs.slides)
 
-    slot_count = count_slots(
-        collect_tables(src, tpl.get("shapes", {}).get("detail_tables"), warns)
-    )
+    if mode == "layout":
+        layout = find_layout(prs, tpl.get("layout", 0))
+        tables_cfg = tpl.get("detail_tables", {}) or {}
+        slot_count = int(tables_cfg.get("count", 5)) * int(tables_cfg.get("rows", 4))
+        src = None
+        # content_area가 슬라이드를 벗어나면 도형이 잘려 나간다. 화면마다
+        # 같은 실패를 반복하기 전에 여기서 한 번 막는다.
+        area = tuple(tpl.get("content_area") or DEFAULT_CONTENT_AREA)
+        if area[1] < 0 or area[1] + area[3] > int(prs.slide_height):
+            raise ValueError(
+                "content_area가 슬라이드 높이를 벗어납니다: top=%d height=%d, "
+                "슬라이드 높이=%d" % (area[1], area[3], int(prs.slide_height))
+            )
+    else:
+        source_slide = tpl.get("source_slide", 0)
+        if source_slide is None:
+            # analyze.py는 예시 슬라이드가 없는 템플릿에 source_slide: null과 함께
+            # mode: layout을 제안한다. 생성 단계는 예시 슬라이드 복제만 지원하므로
+            # int(None)이 던지는 원시 TypeError 대신 원인과 대안을 알려준다.
+            raise ValueError(
+                "template.source_slide가 없습니다. mode를 'layout'으로 두고 "
+                "template.layout에 레이아웃 이름을 지정하거나, 예시 슬라이드가 "
+                "있는 템플릿을 --template으로 지정하세요."
+            )
+        src = prs.slides[int(source_slide)]
+        slot_count = count_slots(
+            collect_tables(src, tpl.get("shapes", {}).get("detail_tables"), warns)
+        )
 
     made = 0
     split_ids: list[str] = []
@@ -158,10 +209,15 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                           "상세 %d건이 슬롯 %d개를 넘어 %d장으로 나눴습니다"
                           % (len(scr["details"]), slot_count, len(pages)))
             for i, page in enumerate(pages):
-                slide = clone_slide(prs, src)
+                if mode == "layout":
+                    slide = _new_layout_slide(prs, layout, tpl, warns, scr_id)
+                else:
+                    slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,
                            page_title(scr["name"], i, len(pages)),
                            mapping, work_dir, warns, screens_data.get("meta"))
+                if mode == "layout":
+                    drop_empty_placeholders(slide)
                 made += 1
         except Exception as exc:
             failed_ids.append(scr_id)
