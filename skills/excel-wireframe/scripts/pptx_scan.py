@@ -97,21 +97,29 @@ def suggest_content_area(layout_info: dict, slide_width: int,
     '슬라이드 폭의 절반 이상을 덮는 도형'만 장애물로 보고, 위아래에서 잠식된
     만큼 깎는다. 추정이 빗나가도 mapping.json에서 고칠 수 있으므로 이 정도면
     충분하다.
+
+    슬라이드 세로 중앙(mid)을 걸치는 도형(top < mid < bottom)은 상단/하단
+    어느 쪽 껍데기로도 분류하지 않고 의도적으로 무시한다. 실제 샘플
+    (화면설계서_저작권_발행기관.정산처_발행기관관리_v1.0_20260427.pptx, 마스터 0
+    레이아웃 0의 '그룹 22', 좌표 (0, 188657, 9892977, 6480704))이 이런 도형의
+    실례다 — 슬라이드 세로 대부분을 덮는 장식 배경이며, 이걸 장애물로 치면
+    상단이든 하단이든 경계가 중앙까지 밀려 본문 영역이 통째로 사라진다.
     """
     half = slide_width // 2
-    blockers = []
-    for s in layout_info["shapes"] + layout_info["placeholders"]:
-        w = s.get("width", 0)
-        if w >= half:
-            blockers.append((s.get("top", 0), s.get("top", 0) + s.get("height", 0)))
-
+    mid = slide_height // 2
     top = 0
     bottom = slide_height
-    for b_top, b_bottom in blockers:
-        if b_bottom <= slide_height // 2:
+    for s in layout_info["shapes"] + layout_info["placeholders"]:
+        w = s.get("width", 0)
+        if w < half:
+            continue
+        b_top = s.get("top", 0)
+        b_bottom = b_top + s.get("height", 0)
+        if b_bottom <= mid:
             top = max(top, b_bottom)      # 상단 껍데기
-        elif b_top >= slide_height // 2:
+        elif b_top >= mid:
             bottom = min(bottom, b_top)   # 하단 껍데기
+        # else: 중앙을 걸치는 넓은 도형은 장식 배경으로 보고 무시한다(위 설명 참고)
 
     return [0, int(top), int(slide_width), int(bottom - top)]
 
