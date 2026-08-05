@@ -163,16 +163,33 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     if mode == "layout":
         layout = find_layout(prs, tpl.get("layout", 0))
         tables_cfg = tpl.get("detail_tables", {}) or {}
-        slot_count = int(tables_cfg.get("count", 5)) * int(tables_cfg.get("rows", 4))
+        count = int(tables_cfg.get("count", 5))
+        rows = int(tables_cfg.get("rows", 4))
+        slot_count = count * rows
         src = None
-        # content_area가 슬라이드를 벗어나면 도형이 잘려 나간다. 화면마다
-        # 같은 실패를 반복하기 전에 여기서 한 번 막는다.
         area = tuple(tpl.get("content_area") or DEFAULT_CONTENT_AREA)
+        # 수직(top/height)만 검사한다. 가로는 일부러 보지 않는다 —
+        # DEFAULT_CONTENT_AREA(-12319, 337940, 9957099, 6331421)는 오른쪽으로
+        # 슬라이드 폭(9906000)을 38780 EMU 넘어가도록 실측값 그대로 만들어졌다.
+        # 원본 화면설계서의 스크린샷 자리가 실제로 그렇게 슬라이드 가장자리를
+        # 살짝 넘겨 배치돼 있어서다. 소박한 좌우 경계 검사를 넣으면 이 정상
+        # 기본값부터 막히므로 가로는 검사하지 않는다. 수직은 그런 의도된 여유가
+        # 없고, top이 음수거나 아래로 슬라이드를 벗어나면 도형이 위아래로
+        # 잘려 나가므로 여기서 막는다.
         if area[1] < 0 or area[1] + area[3] > int(prs.slide_height):
             raise ValueError(
                 "content_area가 슬라이드 높이를 벗어납니다: top=%d height=%d, "
                 "슬라이드 높이=%d" % (area[1], area[3], int(prs.slide_height))
             )
+        # rows_per_table이 과도하면 이미지 자리가 1인치 밑으로 내려가는
+        # split_content_area의 ValueError가 난다. 이건 화면마다 다른 사고가
+        # 아니라 mapping 전체에 걸린 설정 오류다 — 루프 안(_new_layout_slide)
+        # 에서만 부르면 화면 단위 예외 격리에 걸려 같은 오류가 화면 수만큼
+        # screen-failed 경고로 흩어지고, build()는 조용히 끝나면서 슬라이드
+        # 전부가 '[생성 실패]' 표지판이 된다. 루프 밖인 여기서 한 번 불러
+        # 잘못된 설정이면 ValueError를 곧장 터뜨린다(같은 인자이므로 루프
+        # 안의 호출은 그대로 둬도 다시 통과할 뿐이다).
+        split_content_area(area, count, rows)
     else:
         source_slide = tpl.get("source_slide", 0)
         if source_slide is None:

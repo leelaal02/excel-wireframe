@@ -379,6 +379,23 @@ def test_build_layout_mode_raises_for_unknown_layout(tmp_path: Path):
     assert "없는레이아웃" in str(exc.value)
 
 
+def test_build_layout_mode_raises_for_global_row_misconfig_not_per_screen(
+    tmp_path: Path,
+):
+    """rows_per_table이 과도해 이미지 자리가 안 나오는 것은 화면 하나의 사고가
+    아니라 mapping 전체에 걸린 설정 오류다. 화면 단위 격리(screen-failed)로
+    흩어지면 build()가 조용히 끝나면서 모든 슬라이드가 '[생성 실패]'가 되어
+    버린다 — 여기서는 그 대신 ValueError가 루프 밖으로 곧장 터져야 한다."""
+    import pytest
+    tpl = _layout_template(tmp_path / "t.pptx")
+    mapping = _layout_mapping(tpl)
+    mapping["template"]["detail_tables"]["rows"] = 40
+    warns = Warnings()
+    with pytest.raises(ValueError):
+        build(_screens(6), mapping, tmp_path, tmp_path / "out.pptx", warns)
+    assert "screen-failed" not in [w["code"] for w in warns.to_list()]
+
+
 def test_build_clone_mode_still_works(tmp_path: Path):
     """layout 모드를 더해도 clone 경로는 그대로여야 한다."""
     tpl = make_template_pptx(tmp_path / "t.pptx")
