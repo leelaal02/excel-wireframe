@@ -6,6 +6,7 @@ from common import Warnings
 from pptx import Presentation
 from pptx.util import Emu
 from slide_layout import (
+    P_NS,
     drop_empty_placeholders,
     find_layout,
     inherit_placeholders,
@@ -49,6 +50,26 @@ def test_inherit_placeholders_adds_date_and_footer():
     after = {ph.placeholder_format.idx for ph in slide.placeholders}
     assert {10, 11, 12} <= after
     assert set(added) == after - before
+
+
+def test_inherit_placeholders_assigns_unique_shape_ids():
+    """레이아웃 id를 그대로 쓰면 사용자 템플릿에서 중복 id가 생겨 PPT가 복구를 요구한다."""
+    prs = _prs()
+    lay = find_layout(prs, "Title and Content")
+
+    # 레이아웃의 날짜 placeholder(idx=10)에, 슬라이드가 실제로 쓸 id(제목 placeholder의
+    # id)를 일부러 심어 충돌을 재현한다. 이렇게 강제하지 않으면 python-pptx 기본
+    # 템플릿에서는 번호가 우연히 겹치지 않아 회귀를 못 잡는다.
+    date_ph = next(ph for ph in lay.placeholders if ph.placeholder_format.idx == 10)
+    date_ph._element.find(".//{%s}cNvPr" % P_NS).set("id", "2")
+
+    slide = prs.slides.add_slide(lay)
+    assert slide.placeholders[0].shape_id == 2  # 제목이 이미 id=2를 쓰고 있음을 확인
+
+    inherit_placeholders(slide, lay)
+
+    ids = [shape.shape_id for shape in slide.shapes]
+    assert len(ids) == len(set(ids)), ids
 
 
 def test_inherit_placeholders_is_idempotent():

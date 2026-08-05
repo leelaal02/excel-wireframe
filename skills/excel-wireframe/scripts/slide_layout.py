@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+P_NS = "http://schemas.openxmlformats.org/presentationml/2006/main"
 
 
 def find_layout(prs, spec):
@@ -48,14 +49,24 @@ def inherit_placeholders(slide, layout) -> list[int]:
     python-pptx의 add_slide는 date/footer/slidenumber 계열을 복제하지 않는다.
     PowerPoint 관례상 그 셋은 마스터 설정으로 표시되기 때문인데, 우리는 거기에
     값을 써야 하므로 직접 옮긴다.
+
+    레이아웃 XML의 cNvPr/@id는 그대로 들고 오면 안 된다. id는 슬라이드 XML
+    전체에서 유일해야 하는데(OOXML 규칙), 레이아웃 쪽 id와 슬라이드가 이미 쓴
+    id가 우연히 겹칠 수 있다 — 특히 사용자가 준 임의의 템플릿에서는 흔하다.
+    겹치면 PowerPoint가 파일을 열 때 복구를 요구한다. python-pptx 자신도
+    clone_placeholder에서 새 id를 매길 때 같은 방식(문서 전체 최댓값+1)을 쓴다.
     """
     have = {ph.placeholder_format.idx for ph in slide.placeholders}
+    spTree = slide.shapes._spTree
     added: list[int] = []
     for ph in layout.placeholders:
         idx = ph.placeholder_format.idx
         if idx in have:
             continue
-        slide.shapes._spTree.append(copy.deepcopy(ph._element))
+        new_sp = copy.deepcopy(ph._element)
+        cNvPr = new_sp.find(".//{%s}cNvPr" % P_NS)
+        cNvPr.set("id", str(spTree.max_shape_id + 1))
+        spTree.append(new_sp)
         added.append(idx)
     return added
 
