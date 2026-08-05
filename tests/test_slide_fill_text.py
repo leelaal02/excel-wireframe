@@ -63,3 +63,37 @@ def test_set_cell_text_accepts_empty(tmp_path: Path):
 def test_estimate_overflow():
     assert estimate_overflow("짧은 글", 1974850) is False
     assert estimate_overflow("가" * 400, 1974850) is True
+
+
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _add_date_field(shape, shown: str) -> None:
+    """자동 날짜 필드를 심는다. 사용자 템플릿의 DATE placeholder가 이 꼴이다."""
+    from lxml import etree
+
+    p = shape.text_frame.paragraphs[0]._p
+    for r in list(p.findall("{%s}r" % A_NS)):
+        p.remove(r)
+    fld = etree.SubElement(p, "{%s}fld" % A_NS)
+    fld.set("id", "{7DE4667A-1AB8-4DCD-A2F5-D16009686B1A}")
+    fld.set("type", "datetime1")
+    t = etree.SubElement(fld, "{%s}t" % A_NS)
+    t.text = shown
+
+
+def test_set_text_replaces_auto_field(tmp_path: Path):
+    """자동 날짜 필드가 있는 자리에 값을 쓰면 필드 값이 남아 이어 붙으면 안 된다.
+
+    a:fld는 런이 아니라서 paragraph.runs에 잡히지 않는다. 그 사실을 모르고
+    런만 갈아끼우면 '2026-05-292026-06-25'처럼 두 값이 붙어 나온다.
+    """
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    shape = find_shape(prs.slides[0], "제목 13")
+    _add_date_field(shape, "2026-05-29")
+    assert shape.text_frame.text == "2026-05-29"
+
+    set_text(shape, "2026-06-25")
+
+    assert shape.text_frame.text == "2026-06-25"
+    assert shape._element.find(".//{%s}fld" % A_NS) is None

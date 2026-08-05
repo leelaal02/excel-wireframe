@@ -20,9 +20,28 @@ def find_shape(slide, name: str):
     return None
 
 
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _drop_fields(paragraph) -> None:
+    """문단에서 자동 필드(a:fld)를 걷어낸다.
+
+    날짜·쪽번호 같은 자동 필드는 런(a:r)이 아니라서 paragraph.runs에 잡히지
+    않는다. 그대로 두고 런만 갈아끼우면 필드가 보여 주던 값 뒤에 새 값이
+    이어 붙어 '2026-05-292026-06-25'처럼 나온다. 값을 명시적으로 채우기로
+    한 자리에 자동 필드가 남아 있을 이유는 없다.
+
+    채우지 않는 자리(쪽번호 등)는 이 경로를 타지 않으므로 필드가 보존된다.
+    """
+    p = paragraph._p
+    for fld in list(p.findall("{%s}fld" % A_NS)):
+        p.remove(fld)
+
+
 def _fill_text_frame(tf, text: str) -> None:
     lines = str(text).split("\n") if text else [""]
     p0 = tf.paragraphs[0]
+    _drop_fields(p0)
 
     if p0.runs:
         base_run = p0.runs[0]
