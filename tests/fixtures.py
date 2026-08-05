@@ -81,13 +81,18 @@ def make_table_xlsx(path: Path) -> Path:
     return path
 
 
-def make_template_pptx(path: Path, table_count: int = 5, rows_per_table: int = 4) -> Path:
+def make_template_pptx(path: Path) -> Path:
     """실제 샘플과 같은 도형 이름·슬라이드 크기를 가진 *예시 슬라이드형* 템플릿.
 
     기본 템플릿은 슬라이드가 0장이므로, 여기서 layout 모드의 슬라이드 생성
     경로로 한 장을 만들어 예시가 채워진 실제 템플릿을 흉내 낸다 —
     clone 판정(suggest_mode)과 텍스트 교체 테스트들이 그런 파일을 가정한다.
+
+    표 개수·행 수는 실측 조합(5표 × 4행 = 20슬롯)으로 고정한다. 예전엔 인자로
+    받았지만 그 인자를 쓰던 테스트가 사라져 아무도 넘기지 않는다 — 쓰이지 않는
+    설정 손잡이는 남겨 두면 지켜지는지 아무도 확인하지 않는 약속이 된다.
     """
+    table_count, rows_per_table = 5, 4
     from default_template import (
         DEFAULT_LAYOUT_NAME,
         DEFAULT_SHAPE_NAMES,

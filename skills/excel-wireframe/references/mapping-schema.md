@@ -37,7 +37,7 @@
 | `source_slide` | 정수 | **`clone` 전용.** 복제할 슬라이드 인덱스(0-based). `null`이면 원인과 대안을 알리며 실패한다 |
 | `layout` | 이름 또는 정수 | **`layout` 전용.** 쓸 레이아웃. 이름이면 모든 마스터를 훑어 찾고, 정수면 마스터를 이어붙인 순서의 인덱스다. 없으면 `ValueError`로 곧장 멈춘다 — 있는 레이아웃 이름이 메시지에 나온다 |
 | `placeholders` | `{"title": 0, "쪽번호": 12}` | **`layout` 전용.** 채울 placeholder를 **idx로** 지정한다. 이름이 아니라 idx인 이유는 placeholder 이름이 슬라이드를 만들 때마다 `Title 1`·`Content Placeholder 2`처럼 달라지기 때문이다. idx는 레이아웃이 정하므로 고정이다 |
-| `content_area` | `[left, top, width, height]` | **`layout` 전용.** 이미지와 상세표를 놓을 본문 영역(EMU). `analyze.py`가 레이아웃 껍데기를 보고 추천값을 계산해 `suggested_template_mapping`에 담는다. 생략하면 실측 기본값 `[-12319, 337940, 9957099, 6331421]`을 쓴다 |
+| `content_area` | `[left, top, width, height]` | **`layout` 전용.** 이미지와 상세표를 놓을 본문 영역(EMU). `analyze.py`가 레이아웃 껍데기를 보고 추천값을 계산해 `suggested_template_mapping`에 담는다 — 기본 템플릿이면 `[0, 620688, 9906000, 6095578]`(구분선 아래 ~ 하단바 위)이 나온다. 아예 생략하면 그 대신 실측 기본값 `[-12319, 337940, 9957099, 6331421]`이 쓰인다. 원본 화면설계서에서 잰 값이라 슬라이드 폭을 조금 넘어가는데(의도된 값이다), 두 값 모두 정상 동작한다 |
 | `detail_tables` | `{"count": 5, "rows": 4}` | **`layout` 전용.** 만들 상세표 개수와 표당 행 수. 곱이 슬롯 총량이다 |
 | `shapes.title` | 도형 이름 | 화면명이 들어갈 자리 |
 | `shapes.screen_id` | 도형 이름 | 화면ID가 들어갈 자리 |
@@ -84,11 +84,15 @@
     "쪽번호": "쪽번호",
     "detail_tables": ["상세표1", "상세표2", "상세표3", "상세표4", "상세표5"]
   },
-  "content_area": [-12319, 337940, 9957099, 6331421],
+  "content_area": [0, 620688, 9906000, 6095578],
   "detail_tables": { "count": 5, "rows": 4 },
   "table_columns": { "no": 0, "text": 1 }
 }
 ```
+
+위 `content_area`는 기본 템플릿에 대해 `analyze.py`가 계산해 주는 값 그대로다.
+`content_area`를 아예 빼면 대신 실측 기본값 `[-12319, 337940, 9957099, 6331421]`이
+쓰인다 — 둘은 다른 값이며, 실제 실행에서 쓰이는 쪽은 `analyze.py`가 넣어 준 값이다.
 
 ### 기본 템플릿
 
@@ -118,8 +122,8 @@ Excel 표지에서 읽은 `문서제목`이 들어간다.
 
 이 경우 `structure-report.json`의 `suggested_template_mapping`을 `template` 섹션에
 그대로 복사하면 된다. 도형 이름과 placeholder idx가 고정이라 추측이 필요 없고,
-`content_area`도 `analyze.py`가 레이아웃을 보고 계산해 넣어 준다. 값은 위 `layout` 모드
-예시와 같은 모양이다.
+`content_area`도 `analyze.py`가 레이아웃을 보고 계산해 넣어 준다 — 위 `layout` 모드
+예시가 바로 그렇게 나오는 값이다.
 
 python-pptx 기본 템플릿이 갖고 있던 나머지 열 개 레이아웃은 파일에 그대로 남는다.
 레이아웃을 이름으로 찾으므로 동작에는 영향이 없지만, PowerPoint에서 템플릿을 열면

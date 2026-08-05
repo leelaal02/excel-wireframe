@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """3단계: screens.json과 템플릿으로 PPT를 만든다.
 
-screens.json이 SSOT이므로 이 모듈은 Excel을 전혀 모른다. mapping.json에서도
-template / options 섹션만 읽는다. 덕분에 Excel 픽스처 없이 빌드 로직을 검증할 수 있다.
+screens.json은 추출 단계가 남긴 중간 산출물이고, 이 모듈은 그 파일만 읽는다 —
+Excel은 전혀 모른다. mapping.json에서도 template / options 섹션만 읽는다.
+덕분에 Excel 픽스처 없이 빌드 로직을 검증할 수 있고, 이미지 추출이 느린 추출
+단계를 다시 돌리지 않고 생성만 반복할 수 있다.
 """
 from __future__ import annotations
 
@@ -83,7 +85,15 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id):
                       warns, screen_id)
 
     image_box, table_boxes = split_content_area(area, count, rows)
-    add_image_anchor(slide, image_box, shapes_cfg.get("image", "화면이미지"))
+    # shapes.image가 없으면 이미지 자리를 아예 그리지 않는다. 값을 채우는
+    # _fill_page가 같은 키를 보고 이미지 블록 전체를 건너뛰기 때문이다 —
+    # 여기서만 기본 이름으로 그려 두면 place_image가 지울 도형을 못 찾아
+    # 본문 영역만 한 회색 사각형이 슬라이드마다 통째로 남는다(경고도 없이).
+    # "shapes.image를 지정하지 않은 매핑은 이미지를 배치하지 않는다"는
+    # clone 모드의 규칙을 그대로 따르는 셈이다.
+    img_name = shapes_cfg.get("image")
+    if img_name:
+        add_image_anchor(slide, image_box, img_name)
 
     names = shapes_cfg.get("detail_tables") or []
     for i, box in enumerate(table_boxes):
@@ -213,7 +223,8 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
 
     for scr in screens_data.get("screens", []):
         screen_count += 1
-        # id는 SSOT의 핵심 키이지만 손으로 편집한 screens.json에는 빠질 수 있다.
+        # id는 화면을 가리키는 핵심 키이지만 screens.json에 빠져 있을 수 있다
+        # (추출이 어긋났거나 사람이 중간 산출물을 손댄 경우).
         # try 진입 전에 방어적으로 계산해 둬야, id가 없어서 나는 예외를 처리하는
         # except 블록 안에서 scr["id"]가 또 KeyError를 내며 전체 빌드를 무너뜨리는
         # 일이 없다 — 화면 단위 격리 보장이 바로 이 시나리오를 위해 있다.

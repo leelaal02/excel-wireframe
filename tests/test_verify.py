@@ -3,6 +3,7 @@ from pathlib import Path
 from build import build
 from common import Warnings
 from fixtures import make_png, make_template_pptx
+from pptx import Presentation
 from verify import verify_output
 
 
@@ -175,6 +176,56 @@ def test_verify_passes_for_good_output(tmp_path: Path):
     result = verify_output(out, data, _mapping(tpl), report["slides"])
     assert result["ok"] is True
     assert all(c["ok"] for c in result["checks"])
+
+
+def test_verify_passes_for_layout_mode_output(tmp_path: Path):
+    """최종 리뷰 지적 2: 이 파일도 test_sample_e2e.py도 전부 clone 모드였다.
+    설계는 "verify.py는 손댈 필요가 없다"를 명시적 약속으로 두는데, 그 약속은
+    layout 모드에만 있는 장치에 기대고 있다 — name_placeholders가 placeholder
+    이름을 shapes의 이름으로 바꿔 주기 때문에 _title_texts가 제목 도형만 보는
+    엄격한 경로를 탄다. 그 장치가 무너지면 검증은 '아무 도형의 텍스트나 본다'는
+    느슨한 경로로 조용히 내려앉고, 테스트는 그대로 초록이었다."""
+    from default_template import build_default_template, default_template_mapping
+
+    template = build_default_template(tmp_path / "d.pptx")
+    make_png(tmp_path / "images" / "SCR001.png")
+    mapping = {
+        "version": 1,
+        "excel": {"layout": "sheet-per-screen"},
+        "template": default_template_mapping(template),
+        "options": {"detail_text_source": "desc", "clear_unused_slots": True},
+    }
+    data = {
+        "meta": {"문서제목": "화면설계서"},
+        "screens": [
+            {"id": "SCR001", "name": "이용기관 목록",
+             "images": ["images/SCR001.png"], "fields": {},
+             "details": [{"no": "1", "desc": "등록한다"},
+                         {"no": "2", "desc": "삭제한다"}]},
+        ],
+    }
+    out = tmp_path / "out.pptx"
+    report = build(data, mapping, tmp_path, out, Warnings())
+
+    result = verify_output(out, data, mapping, report["slides"], tmp_path)
+
+    assert {c["name"]: c["ok"] for c in result["checks"]} == {
+        "슬라이드 수": True,
+        "화면 데이터": True,
+        "화면명 반영": True,
+        "이미지 배치": True,
+        "상세 항목 수": True,
+        "슬라이드 크기": True,
+    }
+    assert result["ok"] is True
+    # 엄격 경로를 실제로 탔는지 확인한다: 제목 도형이 매핑이 정한 이름을 달고
+    # 있어야 _title_texts가 그 도형만 본다. 이름이 'Title 1'로 남아 있으면 위
+    # 검사들은 느슨한 경로로도 전부 통과하므로 이 확인이 따로 필요하다.
+    slide = Presentation(str(out)).slides[0]
+    title_name = mapping["template"]["shapes"]["title"]
+    assert [s.name for s in slide.shapes if s.name == title_name] == [title_name]
+    assert next(s for s in slide.shapes if s.name == title_name)\
+        .text_frame.text == "이용기관 목록"
 
 
 def test_verify_detects_slide_count_mismatch(tmp_path: Path):

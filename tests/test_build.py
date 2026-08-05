@@ -141,9 +141,10 @@ def test_build_isolates_screen_failure(tmp_path: Path):
 def test_build_isolates_screen_missing_id(tmp_path: Path):
     """블로킹 발견 3: failed_ids.append(scr["id"])가 except 블록 안에 있으면,
     id가 아예 빠진 screen dict 하나가 scr["id"] 참조에서 또 KeyError를 내며
-    빌드 전체를 무너뜨린다 — 결과물이 통째로 안 생긴다. 손으로 편집한
-    screens.json에서 id가 빠지는 것은 SSOT 설계가 정확히 보호해야 하는
-    시나리오다. 다른 화면들은 끝까지 완성되고 파일이 반드시 저장돼야 한다."""
+    빌드 전체를 무너뜨린다 — 결과물이 통째로 안 생긴다. 중간 산출물인
+    screens.json에서 id가 빠지는 것(추출이 어긋났거나 사람이 손댄 경우)은
+    화면 단위 예외 격리가 정확히 보호해야 하는 시나리오다. 다른 화면들은
+    끝까지 완성되고 파일이 반드시 저장돼야 한다."""
     tpl = make_template_pptx(tmp_path / "t.pptx")
     data = _screens(2)
     data["screens"].append(
@@ -343,6 +344,36 @@ def test_build_layout_mode_places_image(tmp_path: Path):
     slide = Presentation(str(out)).slides[0]
     assert any("PICTURE" in str(s.shape_type) for s in slide.shapes)
     assert not any(s.name == "화면이미지" for s in slide.shapes)
+
+
+def test_build_layout_mode_without_image_shape_leaves_no_orphan_anchor(tmp_path: Path):
+    """최종 리뷰 지적 1: 이미지 자리를 그리는 쪽(_new_layout_slide)은 기본 이름
+    '화면이미지'를 쓰고, 그것을 그림으로 바꾸는 쪽(_fill_page)은 기본값 없이
+    shapes.image를 읽었다. 그래서 매핑에서 shapes.image를 빼면 본문 영역만 한
+    회색 사각형이 슬라이드마다 그대로 남았다 — 아무 경고도 없이. 레이아웃에는
+    이미지 placeholder가 없으니 이름을 지을 게 없다고 판단하는 매핑 작성자가
+    실제로 밟을 수 있는 길이다."""
+    tpl = _layout_template(tmp_path / "t.pptx")
+    mapping = _layout_mapping(tpl)
+    del mapping["template"]["shapes"]["image"]
+    out = tmp_path / "out.pptx"
+    warns = Warnings()
+
+    report = build(_screens(3, image="images/SCR001.png"), mapping, tmp_path,
+                   out, warns)
+
+    assert report["slides"] == 1
+    slide = Presentation(str(out)).slides[0]
+    names = [s.name for s in slide.shapes]
+    assert "화면이미지" not in names
+    # 이미지 자리로 쓰이던 큰 사각형이 다른 이름으로 남지도 않아야 한다.
+    # (표 5개와 placeholder만 남는다)
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    autoshapes = [s for s in slide.shapes
+                  if s.shape_type == MSO_SHAPE_TYPE.AUTO_SHAPE]
+    assert autoshapes == [], [s.name for s in autoshapes]
+    assert len([s for s in slide.shapes if s.has_table]) == 5
+    assert warns.to_list() == []
 
 
 def test_build_layout_mode_drops_empty_placeholders(tmp_path: Path):

@@ -49,6 +49,28 @@ def find_layout(prs, spec):
     return matches[0]
 
 
+def append_shape_with_new_id(spTree, element):
+    """다른 파트에서 복사해 온 도형 XML을 붙이면서 cNvPr/@id를 새로 매긴다.
+
+    cNvPr/@id는 한 파트(슬라이드 하나, 레이아웃 하나) 안에서 유일해야 한다
+    (OOXML 규칙). 다른 파트에서 deepcopy로 들고 온 요소의 id는 목적지가 이미
+    쓰고 있는 id와 겹칠 수 있다 — 레이아웃과 슬라이드가 둘 다 2부터 번호를
+    매기므로 오히려 겹치는 쪽이 흔하다. 겹치면 PowerPoint가 파일을 열 때
+    복구를 요구한다. 도형을 하나 붙일 때마다 다시 계산해야 이식하는 도형끼리도
+    겹치지 않는다. python-pptx 자신도 clone_placeholder에서 새 id를 매길 때
+    같은 방식(파트 전체 최댓값+1)을 쓴다.
+
+    같은 규칙을 두 군데(placeholder 상속, 기본 템플릿의 껍데기 이식)에서
+    따로 구현했다가 같은 결함을 두 번 고쳤다. 이식 코드를 새로 쓸 일이 생기면
+    이 함수를 쓴다. 단 slide_clone.clone_slide은 예외다 — 그쪽은 목적지
+    트리를 통째로 비우고 원본 슬라이드를 그대로 옮기므로 id가 겹칠 상대가
+    애초에 없고, 오히려 id를 바꾸면 rId 재매핑과 어긋난다.
+    """
+    element.find(".//{%s}cNvPr" % P_NS).set("id", str(spTree.max_shape_id + 1))
+    spTree.append(element)
+    return element
+
+
 def inherit_placeholders(slide, layout) -> list[int]:
     """레이아웃에 있으나 슬라이드에 없는 placeholder를 복제한다.
 
@@ -56,11 +78,8 @@ def inherit_placeholders(slide, layout) -> list[int]:
     PowerPoint 관례상 그 셋은 마스터 설정으로 표시되기 때문인데, 우리는 거기에
     값을 써야 하므로 직접 옮긴다.
 
-    레이아웃 XML의 cNvPr/@id는 그대로 들고 오면 안 된다. id는 슬라이드 XML
-    전체에서 유일해야 하는데(OOXML 규칙), 레이아웃 쪽 id와 슬라이드가 이미 쓴
-    id가 우연히 겹칠 수 있다 — 특히 사용자가 준 임의의 템플릿에서는 흔하다.
-    겹치면 PowerPoint가 파일을 열 때 복구를 요구한다. python-pptx 자신도
-    clone_placeholder에서 새 id를 매길 때 같은 방식(문서 전체 최댓값+1)을 쓴다.
+    레이아웃 XML의 cNvPr/@id는 그대로 들고 오면 안 된다 —
+    append_shape_with_new_id가 그 이유와 처리를 담고 있다.
     """
     have = {ph.placeholder_format.idx for ph in slide.placeholders}
     spTree = slide.shapes._spTree
@@ -69,10 +88,7 @@ def inherit_placeholders(slide, layout) -> list[int]:
         idx = ph.placeholder_format.idx
         if idx in have:
             continue
-        new_sp = copy.deepcopy(ph._element)
-        cNvPr = new_sp.find(".//{%s}cNvPr" % P_NS)
-        cNvPr.set("id", str(spTree.max_shape_id + 1))
-        spTree.append(new_sp)
+        append_shape_with_new_id(spTree, copy.deepcopy(ph._element))
         added.append(idx)
     return added
 

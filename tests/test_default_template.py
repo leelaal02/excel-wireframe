@@ -84,13 +84,24 @@ def test_default_template_placeholders_start_empty(tmp_path: Path):
         assert ph.text_frame.text == "", ph.placeholder_format.idx
 
 
-def test_default_template_id_background_sits_behind_id_text(tmp_path: Path):
-    """화면ID배경이 화면ID placeholder보다 먼저 와야 뒤에 깔린다."""
+def test_default_template_shell_sits_behind_every_placeholder(tmp_path: Path):
+    """껍데기는 전부 placeholder보다 뒤에 깔려야 한다 — 화면ID배경 위에 화면ID
+    글자가 보이는 것이 대표적인 경우다.
+
+    예전 테스트는 '화면ID배경'과 idx=1 placeholder 한 쌍의 순서만 봤다. 그런데
+    build_default_template은 껍데기를 전부 붙인 뒤 *모든* placeholder를 spTree
+    맨 뒤로 다시 붙이므로, 그 한 쌍의 비교는 SHELL_ORDER를 어떻게 바꾸든 항상
+    참이라 깨질 수가 없었다. 실제 불변식은 '껍데기 전부가 placeholder 전부보다
+    앞'이고, 껍데기를 placeholder 재배치 뒤에 붙이는 순간 이 검사는 실패한다.
+    """
     lay = _layout(build_default_template(tmp_path / "d.pptx"))
-    order = [s.name for s in lay.shapes]
-    ph_name = next(s.name for s in lay.shapes
-                   if s.is_placeholder and s.placeholder_format.idx == 1)
-    assert order.index("화면ID배경") < order.index(ph_name)
+    shells = [i for i, s in enumerate(lay.shapes) if not s.is_placeholder]
+    phs = [i for i, s in enumerate(lay.shapes) if s.is_placeholder]
+
+    # 다섯 껍데기가 전부 레이아웃에 있어야 아래 비교가 의미를 갖는다
+    assert {s.name for s in lay.shapes if not s.is_placeholder} == set(MEASURED_SHELL)
+    assert len(phs) == len(MEASURED_PLACEHOLDERS)
+    assert max(shells) < min(phs), [s.name for s in lay.shapes]
 
 
 def test_default_template_layout_shape_ids_are_unique(tmp_path: Path):
