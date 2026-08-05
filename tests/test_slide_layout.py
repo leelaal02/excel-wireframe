@@ -171,6 +171,23 @@ def test_split_content_area_divides_width_evenly():
     assert all(b[2] == 2000 for b in boxes)
 
 
+def test_split_content_area_last_table_absorbs_the_width_remainder():
+    """실측 DEFAULT_CONTENT_AREA는 폭이 5로 나누어떨어지지 않는다(9957099 // 5 == 1991419,
+    나머지 4). 그 나머지를 버리면 마지막 표 오른쪽 끝이 본문 영역보다 짧아진다."""
+    area = DEFAULT_CONTENT_AREA
+    area_left, _, area_width, _ = area
+    _, boxes = split_content_area(area, 5, 4)
+
+    # 표 폭의 합은 본문 영역 폭과 정확히 같다 (버려지는 나머지가 없다)
+    assert sum(b[2] for b in boxes) == area_width
+    # 마지막 표의 오른쪽 끝은 본문 영역의 오른쪽 끝과 정확히 맞는다
+    last_left, _, last_width, _ = boxes[-1]
+    assert last_left + last_width == area_left + area_width
+    # 표들은 서로 겹치지도, 벌어지지도 않는다
+    for prev, cur in zip(boxes, boxes[1:]):
+        assert cur[0] == prev[0] + prev[2]
+
+
 def test_split_content_area_grows_tables_with_rows():
     _, four = split_content_area(DEFAULT_CONTENT_AREA, 5, 4)
     _, six = split_content_area(DEFAULT_CONTENT_AREA, 5, 6)

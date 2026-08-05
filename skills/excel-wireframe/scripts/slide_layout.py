@@ -163,8 +163,13 @@ def split_content_area(area, table_count: int, rows_per_table: int):
     table_w = width // table_count
     table_boxes = [
         (left + table_w * i, table_top, table_w, table_h)
-        for i in range(table_count)
+        for i in range(table_count - 1)
     ]
+    # 나머지(정수 나눗셈 몫에서 버려지는 폭)는 마지막 표에 몰아준다 — 그래야
+    # 마지막 표의 오른쪽 끝이 본문 영역의 오른쪽 끝과 정확히 맞는다.
+    last_left = left + table_w * (table_count - 1)
+    last_width = width - table_w * (table_count - 1)
+    table_boxes.append((last_left, table_top, last_width, table_h))
     return (left, top, width, image_h), table_boxes
 
 
@@ -185,11 +190,11 @@ def add_image_anchor(slide, box, name: str):
     return shp
 
 
-def _format_cell(cell, size_pt, bold, align, anchor, margin, font=None):
+def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom, font=None):
     cell.margin_left = Emu(margin)
     cell.margin_right = Emu(margin)
     cell.margin_top = Emu(margin)
-    cell.margin_bottom = Emu(0 if font else margin)
+    cell.margin_bottom = Emu(margin_bottom)
     if anchor is not None:
         cell.vertical_anchor = anchor
     p = cell.text_frame.paragraphs[0]
@@ -219,7 +224,7 @@ def add_detail_table(slide, box, rows_per_table: int, name: str):
 
     for r in range(rows_per_table):
         _format_cell(table.cell(r, 0), 6.5, True, PP_ALIGN.CENTER,
-                     MSO_ANCHOR.MIDDLE, 18000)
+                     MSO_ANCHOR.MIDDLE, 18000, 18000)
         _format_cell(table.cell(r, 1), 7.0, False, PP_ALIGN.LEFT, None,
-                     9525, font="맑은 고딕")
+                     9525, 0, font="맑은 고딕")
     return frame
