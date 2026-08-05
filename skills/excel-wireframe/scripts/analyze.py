@@ -16,6 +16,7 @@ from pathlib import Path
 from common import setup_stdio, write_json
 from default_template import build_default_template, default_template_mapping
 from pptx_scan import scan_layouts, scan_presentation, suggest_content_area, suggest_mode
+from user_default import load_user_default, user_default_mapping
 from xlsx_scan import scan_workbook
 
 
@@ -30,12 +31,23 @@ def build_report(excel_path: Path, template_path: Path) -> dict:
     }
 
 
-def resolve_template(template_arg: str | None, out_path: Path) -> tuple[Path, bool]:
+def resolve_template(template_arg: str | None, out_path: Path,
+                     skill_base: Path | None = None):
+    """쓸 템플릿을 정한다. (경로, 생성했는가, 사용자 기본 설정) 셋을 돌려준다.
+
+    우선순위는 명시 지정 > 사용자 기본 설정 > 생성이다. 사용자가 자기 조직
+    템플릿을 설치본에 등록해 두었으면 --template 없이도 그 디자인이 나온다.
+    """
     if template_arg:
-        return Path(template_arg), False
+        return Path(template_arg), False, None
+
+    cfg = load_user_default(skill_base)
+    if cfg is not None:
+        return cfg["template_path"], False, cfg
+
     generated = Path(out_path).parent / "default-template.pptx"
     build_default_template(generated)
-    return generated, True
+    return generated, True, None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,10 +60,13 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     out_path = Path(args.out)
-    template_path, generated = resolve_template(args.template, out_path)
+    template_path, generated, user_cfg = resolve_template(args.template, out_path)
 
     report = build_report(Path(args.excel), template_path)
     report["template_generated"] = generated
+    report["user_default"] = user_cfg is not None
+    if user_cfg is not None:
+        report["suggested_template_mapping"] = user_default_mapping(user_cfg)
     if generated:
         from default_template import DEFAULT_LAYOUT_NAME
         tpl_mapping = default_template_mapping(template_path)
@@ -73,6 +88,10 @@ def main(argv: list[str] | None = None) -> int:
     if generated:
         print("템플릿 미제공 → 기본 템플릿 생성: %s" % template_path)
         print("  제안 매핑이 리포트의 suggested_template_mapping에 있습니다")
+    elif user_cfg is not None:
+        print("템플릿 미제공 → 사용자 기본 템플릿 사용: %s" % template_path)
+        print("  레이아웃 '%s', 제안 매핑이 리포트의 "
+              "suggested_template_mapping에 있습니다" % user_cfg.get("layout"))
     w, h = report["template"]["slide_size_in"]
     print("템플릿 슬라이드 %d장, 크기 %.2f x %.2f in"
           % (len(report["template"]["slides"]), w, h))

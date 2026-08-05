@@ -94,6 +94,25 @@
 `content_area`를 아예 빼면 대신 실측 기본값 `[-12319, 337940, 9957099, 6331421]`이
 쓰인다 — 둘은 다른 값이며, 실제 실행에서 쓰이는 쪽은 `analyze.py`가 넣어 준 값이다.
 
+### 사용자 기본 템플릿 (user-default.json)
+
+스킬 디렉토리에 `user-default.json`을 두면 `--template` 없이 실행할 때 그 템플릿과
+레이아웃이 쓰인다. 조직 표준 양식이 정해져 있어 매번 같은 디자인을 쓰는 경우를 위한
+것이다. `analyze.py`가 그 설정을 `suggested_template_mapping`으로 그대로 내보내므로
+`template` 섹션에 복사만 하면 된다.
+
+우선순위는 **`--template` 명시 지정 > `user-default.json` > 기본 템플릿 생성**이다.
+
+설정 파일이 있는데 `template`이 가리키는 파일이 없거나 `layout`이 비면 `ValueError`로
+멈춘다 — 조용히 기본 템플릿으로 떨어지면 왜 내 템플릿이 안 쓰이는지 알 수 없다.
+
+`template`은 스킬 디렉토리 기준 상대경로(`assets/…`)이거나 절대경로다. 스킬 안에
+복사해 두면 원본을 옮겨도 안전하고, 절대경로로 원본을 가리키면 원본을 고칠 때마다
+바로 반영된다. 형식과 각 필드 설명은 `user-default.example.json`에 있다.
+
+**이 파일과 `assets/`는 `.gitignore` 대상이다.** 실물 조직 템플릿에는 제3자 저작권
+표기와 로고가 들어 있고, 스킬은 코드째 배포되기 때문이다.
+
 ### 기본 템플릿
 
 사용자가 템플릿을 주지 않으면 `analyze.py`가 `default-template.pptx`를 만든다.

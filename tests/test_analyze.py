@@ -36,17 +36,59 @@ def test_main_writes_report_file(tmp_path: Path):
 
 def test_resolve_template_uses_given_path(tmp_path: Path):
     pptx = make_template_pptx(tmp_path / "t.pptx")
-    path, generated = resolve_template(str(pptx), tmp_path / "work" / "r.json")
+    path, generated, cfg = resolve_template(str(pptx),
+                                            tmp_path / "work" / "r.json")
     assert path == pptx
     assert generated is False
+    assert cfg is None
 
 
 def test_resolve_template_generates_when_missing(tmp_path: Path):
     out = tmp_path / "work" / "r.json"
-    path, generated = resolve_template(None, out)
+    path, generated, cfg = resolve_template(None, out)
     assert generated is True
+    assert cfg is None
     assert path == tmp_path / "work" / "default-template.pptx"
     assert path.exists()
+
+
+def test_resolve_template_prefers_user_default_over_generating(tmp_path: Path):
+    """사용자가 조직 템플릿을 등록해 두면 --template 없이도 그것을 쓴다."""
+    from common import write_json
+    from default_template import build_default_template
+
+    base = tmp_path / "skill"
+    (base / "assets").mkdir(parents=True)
+    tpl = build_default_template(base / "assets" / "t.pptx")
+    write_json(base / "user-default.json",
+               {"template": "assets/t.pptx", "layout": "화면"})
+
+    path, generated, cfg = resolve_template(
+        None, tmp_path / "work" / "r.json", skill_base=base)
+
+    assert path == tpl
+    assert generated is False
+    assert cfg["layout"] == "화면"
+    assert not (tmp_path / "work" / "default-template.pptx").exists()
+
+
+def test_resolve_template_given_path_wins_over_user_default(tmp_path: Path):
+    """명시 지정이 사용자 기본 설정보다 우선한다."""
+    from common import write_json
+    from default_template import build_default_template
+
+    base = tmp_path / "skill"
+    (base / "assets").mkdir(parents=True)
+    build_default_template(base / "assets" / "t.pptx")
+    write_json(base / "user-default.json",
+               {"template": "assets/t.pptx", "layout": "화면"})
+    given = make_template_pptx(tmp_path / "given.pptx")
+
+    path, generated, cfg = resolve_template(
+        str(given), tmp_path / "work" / "r.json", skill_base=base)
+
+    assert path == given
+    assert cfg is None
 
 
 def test_main_without_template_generates_one(tmp_path: Path):

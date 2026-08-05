@@ -1,0 +1,32 @@
+{
+  "_설명": "이 파일을 user-default.json으로 복사해 쓰면 --template 없이 실행할 때 여기 지정한 템플릿과 레이아웃이 쓰인다. 없으면 default_template.py가 기본 템플릿을 만든다. user-default.json과 assets/는 .gitignore 대상이다 — 조직 템플릿은 저장소에 올리지 않는다.",
+  "_template": "스킬 디렉토리 기준 상대경로 또는 절대경로. 스킬 안에 복사해 두려면 assets/를 쓰고, 다른 곳의 원본을 계속 고쳐 쓸 거면 절대경로를 적는다.",
+  "template": "assets/default-template.pptx",
+
+  "mode": "layout",
+  "_layout": "레이아웃 이름. 모든 마스터를 훑어 찾는다. 안 적으면 로딩이 거부된다 — 빌드가 첫 레이아웃을 집어 엉뚱한 디자인이 나오는 것을 막기 위해서다.",
+  "layout": "내용설명연결",
+
+  "_placeholders": "채울 placeholder를 idx로 지정한다. 이름이 아니라 idx인 이유는 placeholder 이름이 슬라이드를 만들 때마다 달라지기 때문이다. 레이아웃마다 idx가 다르니 structure-report.json의 layouts에서 확인한다.",
+  "placeholders": {
+    "title": 0,
+    "screen_id": 2,
+    "작성일": 10
+  },
+
+  "_shapes": "채운 자리에 붙일 이름. verify.py가 이 이름으로 결과를 검증한다.",
+  "shapes": {
+    "title": "제목",
+    "screen_id": "화면ID",
+    "image": "화면이미지",
+    "작성일": "작성일",
+    "detail_tables": ["상세표1", "상세표2", "상세표3", "상세표4", "상세표5"]
+  },
+
+  "_detail_tables": "만들 상세표 개수와 표당 행 수. 곱이 슬라이드당 슬롯 총량이다.",
+  "detail_tables": { "count": 5, "rows": 4 },
+  "table_columns": { "no": 0, "text": 1 },
+
+  "_content_area": "이미지와 상세표가 들어갈 본문 영역 [left, top, width, height] (EMU). 생략하면 실측 기본값을 쓴다.",
+  "content_area": [-12319, 337940, 9957099, 6331421]
+}

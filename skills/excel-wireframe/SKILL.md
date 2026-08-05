@@ -37,7 +37,13 @@ python -c "import pptx, openpyxl, PIL"
 python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.pptx> --out work/structure-report.json
 ```
 
-**템플릿을 안 받았으면 `--template`을 생략한다.** 기본 템플릿이
+**템플릿을 안 받았으면 `--template`을 생략한다.** 스킬 디렉토리에
+`user-default.json`이 있으면 거기 지정된 조직 템플릿과 레이아웃을 쓰고, 바로 쓸 수
+있는 매핑이 리포트의 `suggested_template_mapping`에 담긴다. 그 경우 아래 기본 템플릿
+설명은 해당하지 않는다 — 실행 출력에 "사용자 기본 템플릿 사용"이 찍히므로 어느 쪽이
+쓰였는지 바로 보인다. 설정 형식은 `user-default.example.json`에 있다.
+
+설정이 없으면 기본 템플릿이
 `work/default-template.pptx`로 만들어진다 — 슬라이드 10.83 × 7.50in에 화면 페이지용
 레이아웃(`화면`) 하나가 들어 있고, 상단 띠·구분선·하단 바 같은 껍데기는 그 레이아웃
 위에, 글자가 들어가는 자리(제목·화면ID·작성일·문서제목·쪽번호)는 placeholder로 있다.

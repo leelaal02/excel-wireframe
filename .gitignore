@@ -14,3 +14,9 @@ output/
 
 # 대화 export
 /????-??-??-*.txt
+
+# 사용자 개인 설정 — 조직 템플릿 경로와 그 복사본.
+# 남의 저작권 표기가 박힌 실물 pptx라 저장소에 올리지 않는다.
+# 형식은 skills/excel-wireframe/user-default.example.json 참고.
+skills/excel-wireframe/user-default.json
+skills/excel-wireframe/assets/
