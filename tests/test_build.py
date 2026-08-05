@@ -516,3 +516,92 @@ def test_today_returns_iso_date():
     from build import _today
 
     assert _today() == date.today().isoformat()
+
+
+def _details(n: int) -> list[dict]:
+    return [{"no": str(i + 1), "desc": "설명 %d" % (i + 1)} for i in range(n)]
+
+
+def _tall_png(path: Path, badges_at: list[int], w=400, h=1200) -> Path:
+    """세로로 긴 가짜 스크린샷. 지정한 y에 노란 뱃지를 찍는다."""
+    from PIL import Image, ImageDraw
+    path.parent.mkdir(parents=True, exist_ok=True)
+    im = Image.new("RGB", (w, h), "white")
+    d = ImageDraw.Draw(im)
+    for y in range(0, h, 300):          # 여백이 아닌 띠를 만들어 자를 곳을 제한한다
+        d.rectangle([0, y, w, y + 250], fill=(230, 235, 245))
+    for y in badges_at:
+        d.ellipse([100, y - 12, 124, y + 12], fill=(255, 210, 40))
+    im.save(path)
+    return path
+
+
+def test_plan_pages_splits_details_by_badge_count(tmp_path: Path):
+    """조각별 뱃지 수만큼 상세가 배분된다."""
+    from build import plan_pages
+    img = _tall_png(tmp_path / "images" / "S.png", [100, 200, 700, 800, 900])
+    scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
+           "fields": {}, "details": _details(5)}
+
+    pages, note = plan_pages(scr, 20, tmp_path, (0, 0, 400, 200), True)
+
+    assert note is None
+    assert len(pages) >= 2
+    assert sum(len(p) for p, _ in pages) == 5
+    assert [d["no"] for d, _ in [(p[0], i) for p, i in pages if p]][0] == "1"
+    assert all(i is not None for _, i in pages)
+
+
+def test_plan_pages_repeats_piece_when_details_exceed_slots(tmp_path: Path):
+    """한 조각의 상세가 슬롯을 넘으면 같은 조각을 여러 장에 싣는다."""
+    from build import plan_pages
+    ys = list(range(60, 290, 30))       # 첫 조각에 뱃지를 몰아 넣는다
+    img = _tall_png(tmp_path / "images" / "S.png", ys)
+    scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
+           "fields": {}, "details": _details(len(ys))}
+
+    pages, note = plan_pages(scr, 5, tmp_path, (0, 0, 400, 200), True)
+
+    assert note is None
+    imgs = [i for _, i in pages]
+    assert len(imgs) > len(set(imgs)), "같은 조각이 반복돼야 한다"
+    assert sum(len(p) for p, _ in pages) == len(ys)
+
+
+def test_plan_pages_falls_back_when_badges_mismatch(tmp_path: Path):
+    """뱃지 수가 상세 건수와 다르면 순차 배분으로 물러선다."""
+    from build import plan_pages
+    _tall_png(tmp_path / "images" / "S.png", [100, 700])
+    scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
+           "fields": {}, "details": _details(9)}
+
+    pages, note = plan_pages(scr, 4, tmp_path, (0, 0, 400, 200), True)
+
+    assert note is not None and "맞지 않아" in note
+    assert sum(len(p) for p, _ in pages) == 9
+
+
+def test_plan_pages_skips_split_when_disabled(tmp_path: Path):
+    from build import plan_pages
+    _tall_png(tmp_path / "images" / "S.png", [100, 700])
+    scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
+           "fields": {}, "details": _details(4)}
+
+    pages, note = plan_pages(scr, 20, tmp_path, (0, 0, 400, 200), False)
+
+    assert note is None
+    assert len(pages) == 1
+    assert pages[0][1] is None
+
+
+def test_plan_pages_leaves_short_image_alone(tmp_path: Path):
+    """자리보다 짧은 이미지는 나누지 않는다."""
+    from build import plan_pages
+    _tall_png(tmp_path / "images" / "S.png", [50], w=400, h=100)
+    scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
+           "fields": {}, "details": _details(3)}
+
+    pages, note = plan_pages(scr, 20, tmp_path, (0, 0, 400, 200), True)
+
+    assert len(pages) == 1
+    assert pages[0][1] is None

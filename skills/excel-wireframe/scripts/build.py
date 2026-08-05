@@ -15,6 +15,7 @@ from pathlib import Path
 
 from common import Warnings, read_json, resolve_template_path, setup_stdio
 from pptx import Presentation
+from image_split import split_for_box
 from slide_clone import clone_slide
 from slide_fill import (
     collect_tables,
@@ -103,6 +104,53 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id):
     return slide
 
 
+def plan_pages(scr: dict, slot_count: int, work_dir: Path, image_box,
+               enabled: bool):
+    """화면 하나를 (상세 묶음, 이미지 경로) 페이지 목록으로 나눈다.
+
+    이미지가 자리보다 길면 조각으로 나누고, 각 조각의 SoM 뱃지 수만큼 상세를
+    배분한다. 조각의 상세가 슬롯을 넘으면 같은 조각을 여러 장에 반복해 싣는다 —
+    그 상세가 가리키는 화면이 그 조각 안에 있기 때문이다.
+
+    뱃지가 안 잡히거나 개수가 상세 건수와 어긋나면 분할만 하지 않고 기존처럼
+    슬롯 단위로 나눈다. 조용히 엉뚱한 상세가 붙는 것보다 낫다.
+    """
+    details = scr.get("details", [])
+    images = scr.get("images") or []
+    plain = [(page, None) for page in chunk_details(details, slot_count)]
+    if not enabled or not images or image_box is None:
+        return plain, None
+
+    src = Path(work_dir) / images[0]
+    if not src.exists():
+        return plain, None
+
+    pieces, counts, total = split_for_box(src, image_box[2], image_box[3],
+                                          Path(work_dir) / "images")
+    if len(pieces) <= 1:
+        return plain, None
+    if not counts or sum(counts) != len(details):
+        # 조각은 쓰되 상세는 순차 배분한다. 첫 조각만 쓰면 나머지 화면이 사라지므로
+        # 페이지 수에 맞춰 조각을 돌려 쓴다.
+        pages = []
+        for i, page in enumerate(chunk_details(details, slot_count)):
+            pages.append((page, pieces[min(i, len(pieces) - 1)]))
+        return pages, ("뱃지 %d개가 상세 %d건과 맞지 않아 상세를 순서대로 배분했습니다"
+                       % (total, len(details)))
+
+    pages = []
+    at = 0
+    for piece, n in zip(pieces, counts):
+        part = details[at:at + n]
+        at += n
+        if not part:
+            pages.append(([], piece))
+            continue
+        for chunk in chunk_details(part, slot_count):
+            pages.append((chunk, piece))
+    return pages, None
+
+
 def _today() -> str:
     """생성일. 표지 작성일과 같은 표기(YYYY-MM-DD)를 쓴다."""
     return date.today().isoformat()
@@ -129,7 +177,8 @@ def _doc_meta(screens_data: dict, mapping: dict) -> dict:
 
 
 def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
-               work_dir: Path, warns: Warnings, meta: dict | None = None) -> None:
+               work_dir: Path, warns: Warnings, meta: dict | None = None,
+               image_path: Path | None = None) -> None:
     tpl = mapping["template"]
     shapes_cfg = tpl.get("shapes", {})
     opts = mapping.get("options", {})
@@ -175,10 +224,12 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
         images = scr.get("images") or []
         if anchor is None:
             warns.add(scr["id"], "shape-not-found", "이미지 자리 '%s' 없음" % img_name)
-        elif not images:
+        elif not images and image_path is None:
             warns.add(scr["id"], "no-image", "배치할 이미지가 없습니다")
         else:
-            place_image(slide, anchor, work_dir / images[0])
+            # image_path는 분할된 조각이다. 없으면 원본 한 장을 그대로 쓴다.
+            place_image(slide, anchor,
+                        image_path if image_path is not None else work_dir / images[0])
 
     # 표 이름 검증은 build()가 소스 슬라이드를 상대로 한 번만 한다. 여기서 다시
     # warns를 넘기면 화면(슬라이드) 수만큼 같은 shape-not-found 경고가 반복된다.
@@ -203,6 +254,8 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
         rows = int(tables_cfg.get("rows", 4))
         slot_count = count * rows
         src = None
+        image_box_for_split, _ = split_content_area(
+            tuple(tpl.get("content_area") or DEFAULT_CONTENT_AREA), count, rows)
         area = tuple(tpl.get("content_area") or DEFAULT_CONTENT_AREA)
         # 수직(top/height)만 검사한다. 가로는 일부러 보지 않는다 —
         # DEFAULT_CONTENT_AREA(-12319, 337940, 9957099, 6331421)는 오른쪽으로
@@ -237,6 +290,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                 "template.layout에 레이아웃 이름을 지정하거나, 예시 슬라이드가 "
                 "있는 템플릿을 --template으로 지정하세요."
             )
+        image_box_for_split = None
         src = prs.slides[int(source_slide)]
         slot_count = count_slots(
             collect_tables(src, tpl.get("shapes", {}).get("detail_tables"), warns)
@@ -257,20 +311,24 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
         # 일이 없다 — 화면 단위 격리 보장이 바로 이 시나리오를 위해 있다.
         scr_id = scr.get("id") or "(id 없음 #%d)" % screen_count
         try:
-            pages = chunk_details(scr.get("details", []), slot_count)
+            split_on = str(mapping.get("options", {}).get("image_split", "auto")) != "off"
+            pages, note = plan_pages(scr, slot_count, work_dir,
+                                     image_box_for_split, split_on)
+            if note:
+                print("  [%s] %s" % (scr_id, note))
             if len(pages) > 1:
                 split_ids.append(scr_id)
                 warns.add(scr_id, "slide-split",
                           "상세 %d건이 슬롯 %d개를 넘어 %d장으로 나눴습니다"
                           % (len(scr["details"]), slot_count, len(pages)))
-            for i, page in enumerate(pages):
+            for i, (page, page_image) in enumerate(pages):
                 if mode == "layout":
                     slide = _new_layout_slide(prs, layout, tpl, warns, scr_id)
                 else:
                     slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,
                            page_title(scr["name"], i, len(pages)),
-                           mapping, work_dir, warns, doc_meta)
+                           mapping, work_dir, warns, doc_meta, page_image)
                 if mode == "layout":
                     drop_empty_placeholders(slide)
                 made += 1
