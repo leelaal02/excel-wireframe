@@ -242,3 +242,61 @@ def test_add_image_anchor_uses_the_box():
     shp = add_image_anchor(slide, (100, 200, 3000, 4000), "화면이미지")
     assert (shp.left, shp.top, shp.width, shp.height) == (100, 200, 3000, 4000)
     assert shp.name == "화면이미지"
+
+
+A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+
+def _new_table(rows=4):
+    prs = _prs()
+    slide = prs.slides.add_slide(find_layout(prs, "Title and Content"))
+    return add_detail_table(slide, (0, 0, 1971135, 1416117), rows, "상세표1")
+
+
+def test_add_detail_table_uses_the_plain_table_style():
+    """python-pptx 기본 스타일은 파란 머리글과 줄무늬가 들어간다.
+
+    원본 화면설계서의 상세표는 스타일 없이 셀마다 테두리를 그린 꼴이다.
+    기본값을 그대로 두면 원본과 전혀 다른 표가 나온다.
+    """
+    frame = _new_table()
+    tbl = frame.table._tbl
+    style = tbl.find("{%s}tblPr" % A_NS).find("{%s}tableStyleId" % A_NS)
+    assert style is not None
+    assert style.text == "{2D5ABB26-0587-4C30-8999-92F81FD0307C}"
+
+
+def test_add_detail_table_draws_cell_borders():
+    """스타일이 없으므로 테두리는 셀마다 직접 그려야 보인다."""
+    table = _new_table().table
+    for r in range(4):
+        for c in (0, 1):
+            pr = table.cell(r, c)._tc.find("{%s}tcPr" % A_NS)
+            assert pr is not None, (r, c)
+            for edge in ("lnL", "lnR", "lnT", "lnB"):
+                ln = pr.find("{%s}%s" % (A_NS, edge))
+                assert ln is not None, (r, c, edge)
+                assert ln.get("w") == "3175", (r, c, edge)
+                clr = ln.find(".//{%s}schemeClr" % A_NS)
+                assert clr is not None and clr.get("val") == "tx1", (r, c, edge)
+
+
+def test_add_detail_table_shades_the_number_column_only():
+    """번호 칸에만 배경이 깔린다. 내용 칸은 비운다."""
+    table = _new_table().table
+    for r in range(4):
+        no_pr = table.cell(r, 0)._tc.find("{%s}tcPr" % A_NS)
+        txt_pr = table.cell(r, 1)._tc.find("{%s}tcPr" % A_NS)
+        no_fill = no_pr.find("{%s}solidFill" % A_NS)
+        assert no_fill is not None, r
+        assert no_fill.find("{%s}schemeClr" % A_NS).get("val") == "tx2"
+        assert txt_pr.find("{%s}solidFill" % A_NS) is None, r
+
+
+def test_add_detail_table_borders_follow_row_count():
+    """행 수를 바꿔도 모든 셀이 테두리를 갖는다."""
+    table = _new_table(rows=6).table
+    assert len(table.rows) == 6
+    for r in range(6):
+        pr = table.cell(r, 1)._tc.find("{%s}tcPr" % A_NS)
+        assert pr.find("{%s}lnB" % A_NS) is not None, r

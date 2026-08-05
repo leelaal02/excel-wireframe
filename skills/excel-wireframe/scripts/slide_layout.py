@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import copy
 
+from lxml.etree import SubElement
+
 from common import EMU_PER_INCH
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
@@ -143,6 +145,16 @@ MIN_IMAGE_HEIGHT_EMU = EMU_PER_INCH  # 1인치
 SLOT_BORDER = RGBColor(0xBB, 0xBB, 0xBB)
 SLOT_FILL = RGBColor(0xF5, 0xF6, 0xF8)
 
+# --- 표 서식 (원본 화면설계서의 상세표에서 그대로 잰 값) ---
+# python-pptx가 새 표에 붙이는 기본 스타일은 파란 머리글과 줄무늬가 들어가서
+# 원본과 전혀 다른 표가 나온다. 원본은 "스타일 없음"에 셀마다 테두리를 직접
+# 그린 꼴이라, 스타일을 지우고 테두리와 음영을 우리가 그려야 같아진다.
+TABLE_STYLE_PLAIN = "{2D5ABB26-0587-4C30-8999-92F81FD0307C}"  # No Style, No Grid
+BORDER_WIDTH = 3175
+BORDER_SCHEME = ("tx1", 65000, 35000)   # 테두리 회색
+NO_COL_SCHEME = ("tx2", 40000, 60000)   # 번호 칸 배경
+_EDGES = ("lnL", "lnR", "lnT", "lnB")
+
 
 def _row_heights(rows_per_table: int) -> list[int]:
     """실측 행높이를 쓰되, 4행을 넘으면 마지막 값을 반복한다."""
@@ -206,6 +218,56 @@ def add_image_anchor(slide, box, name: str):
     return shp
 
 
+def _scheme_fill(parent, tag: str, scheme):
+    """schemeClr 채움 요소를 parent 아래에 만든다. (val, lumMod, lumOff)."""
+    val, lum_mod, lum_off = scheme
+    fill = SubElement(parent, "{%s}%s" % (A_NS, tag))
+    clr = SubElement(fill, "{%s}schemeClr" % A_NS)
+    clr.set("val", val)
+    SubElement(clr, "{%s}lumMod" % A_NS).set("val", str(lum_mod))
+    SubElement(clr, "{%s}lumOff" % A_NS).set("val", str(lum_off))
+    return fill
+
+
+def _set_table_style(table, style_id: str) -> None:
+    """표 스타일을 갈아끼운다. tableStyleId는 tblPr의 마지막 자식이다."""
+    tbl_pr = table._tbl.find("{%s}tblPr" % A_NS)
+    if tbl_pr is None:
+        tbl_pr = SubElement(table._tbl, "{%s}tblPr" % A_NS)
+    for old in tbl_pr.findall("{%s}tableStyleId" % A_NS):
+        tbl_pr.remove(old)
+    SubElement(tbl_pr, "{%s}tableStyleId" % A_NS).text = style_id
+
+
+def _draw_cell_edges(cell, shaded: bool) -> None:
+    """셀에 4방향 테두리를, 번호 칸이면 배경까지 그린다.
+
+    tcPr의 자식 순서는 스키마가 정한다 — 테두리(lnL/lnR/lnT/lnB)가 먼저이고
+    채움이 그 뒤다. 순서를 어기면 PowerPoint가 파일을 열지 못한다.
+    python-pptx에 셀 테두리 API가 없어 XML을 직접 쓴다.
+    """
+    tc = cell._tc
+    pr = tc.find("{%s}tcPr" % A_NS)
+    if pr is None:
+        pr = SubElement(tc, "{%s}tcPr" % A_NS)
+    for tag in _EDGES + ("solidFill",):
+        for old in pr.findall("{%s}%s" % (A_NS, tag)):
+            pr.remove(old)
+
+    for edge in _EDGES:
+        ln = SubElement(pr, "{%s}%s" % (A_NS, edge))
+        ln.set("w", str(BORDER_WIDTH))
+        ln.set("cap", "flat")
+        ln.set("cmpd", "sng")
+        ln.set("algn", "ctr")
+        _scheme_fill(ln, "solidFill", BORDER_SCHEME)
+        SubElement(ln, "{%s}prstDash" % A_NS).set("val", "solid")
+        SubElement(ln, "{%s}round" % A_NS)
+
+    if shaded:
+        _scheme_fill(pr, "solidFill", NO_COL_SCHEME)
+
+
 def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom, font=None):
     cell.margin_left = Emu(margin)
     cell.margin_right = Emu(margin)
@@ -238,9 +300,15 @@ def add_detail_table(slide, box, rows_per_table: int, name: str):
     for ri, rh in enumerate(_row_heights(rows_per_table)):
         table.rows[ri].height = Emu(rh)
 
+    _set_table_style(table, TABLE_STYLE_PLAIN)
+
     for r in range(rows_per_table):
         _format_cell(table.cell(r, 0), 6.5, True, PP_ALIGN.CENTER,
                      MSO_ANCHOR.MIDDLE, 18000, 18000)
         _format_cell(table.cell(r, 1), 7.0, False, PP_ALIGN.LEFT, None,
                      9525, 0, font="맑은 고딕")
+        # 여백·정렬을 먼저 넣고 테두리를 그린다. _format_cell이 margin을 쓰면
+        # python-pptx가 tcPr을 새로 만들 수 있어, 테두리를 먼저 그리면 지워진다.
+        _draw_cell_edges(table.cell(r, 0), shaded=True)
+        _draw_cell_edges(table.cell(r, 1), shaded=False)
     return frame
