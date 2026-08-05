@@ -103,6 +103,23 @@ PPT 표 스타일 ID 지정이나 레이아웃에 표 견본을 심는 방식은
 
 `slide_clone.py`는 `clone` 모드 전용으로 그대로 남는다.
 
+### 채운 placeholder에 이름을 붙인다
+
+③에서 값을 채운 뒤 **도형 이름을 mapping의 `shapes`가 정한 이름으로 바꾼다.**
+
+`verify.py`는 `template.shapes.title` 이름으로 제목 도형을 찾아 화면명 반영과 상세 항목
+수를 검사한다(`_title_texts`). 이름을 안 붙이면 `title_name`이 `None`이 되어 슬라이드의
+모든 텍스트를 제목 후보로 보는 느슨한 경로로 떨어지고, 상세 항목 수 검사가 오탐을 낸다.
+
+placeholder 이름은 `add_slide`가 `Title 1`, `Content Placeholder 2`처럼 그때그때
+정하므로 그대로 두면 검증에 쓸 수 없다. 값을 채운 뒤 `제목`·`화면ID`로 이름을 바꾸면
+`verify.py`를 고치지 않아도 되고, 사용자가 PowerPoint에서 열었을 때 선택 창의 이름도
+읽을 만해진다. 표도 마찬가지로 `상세표1`…`상세표N`으로 이름을 붙이고, 그 목록을
+`shapes.detail_tables`에 담아 검증이 표를 찾을 수 있게 한다.
+
+즉 layout 모드의 mapping은 **`placeholders`(어느 idx에서 찾을지)와 `shapes`(어떤 이름으로
+남길지)를 함께 쓴다.** 중복이 아니라 역할이 다르다.
+
 ### mapping.json의 template 섹션
 
 ```json
@@ -196,6 +213,19 @@ content_area
 
 추출 결과가 어긋나면 `screens.json`을 손대지 않고 **매핑을 고쳐 재추출한다.** 원인이
 매핑에 있기 때문이다.
+
+### 테스트 픽스처의 재배치
+
+`tests/fixtures.py`의 `make_template_pptx`는 지금 `build_default_template`이 만든
+**예시 슬라이드**를 가져다 도형 이름만 실제 샘플처럼 바꿔 clone 모드 테스트에 쓴다.
+기본 템플릿이 슬라이드 0장이 되면 이 픽스처가 성립하지 않는다.
+
+새 방식: 기본 템플릿을 만든 뒤 **layout 모드의 슬라이드 생성 경로로 예시 슬라이드를 한 장
+만들어** 그것을 clone용 템플릿으로 저장한다. 예시 텍스트와 도형 이름 변경은 지금처럼
+픽스처가 담당한다.
+
+`CLAUDE.md`의 "테스트 템플릿 픽스처는 `build_default_template`을 재사용한다" 규칙은
+유효하되, 그 위에 슬라이드 한 장을 얹는 단계가 추가된다는 점을 문구에 반영한다.
 
 ## 오류 처리
 
