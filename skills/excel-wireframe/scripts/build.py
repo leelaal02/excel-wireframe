@@ -182,13 +182,21 @@ def _cap_heights(heights, floors, limit: int) -> list[int]:
 
 
 def _fit_tables(pages, area, count: int, rows: int, text_key: str):
-    """화면 하나의 모든 장을 담을 행 높이와 설명 칸 글자 크기를 정한다.
+    """화면의 장별 행 높이와, 화면 전체가 공유할 설명 칸 글자 크기를 정한다.
 
     2패스의 두 번째다. 배분(pages)은 이미 확정됐고, 여기서는 그 배분에 맞는
     표 높이만 구한다 — 배분을 다시 돌리면 이미지 자리가 바뀌어 조각 수가 바뀌고,
     조각 수가 바뀌면 배분이 또 바뀌어 순환에 빠진다.
 
-    (행 높이, 글자 크기, 낮췄는지)를 돌려준다.
+    높이는 장마다 자기 내용에 맞춰 잡는다. 전 장을 최악값으로 통일하면 긴 상세
+    하나가 모든 장의 표를 밀어 올려 이미지 자리를 통째로 잡아먹는다. 배분을
+    재계산하지 않으므로 장마다 높이가 달라도 순환은 생기지 않고, 이미지는
+    place_image가 비율을 지켜 축소 배치한다.
+
+    글자 크기만은 화면 단위로 통일한다 — 한 장만 작으면 장을 넘길 때 글자가
+    커졌다 작아졌다 한다.
+
+    (장별 행 높이 목록, 글자 크기, 낮췄는지)를 돌려준다.
     """
     floors = measured_row_heights(rows)
     width = detail_text_width(area[2], count)
@@ -196,10 +204,12 @@ def _fit_tables(pages, area, count: int, rows: int, text_key: str):
     texts = [[str(d.get(text_key, "") or "") for d in page] for page, _ in pages]
 
     for size_pt in DETAIL_FONT_STEPS:
-        heights = plan_row_heights(texts, rows, width, size_pt, floors)
-        if sum(heights) <= limit:
-            return heights, size_pt, size_pt != DETAIL_FONT_STEPS[0]
-    return _cap_heights(heights, floors, limit), DETAIL_FONT_STEPS[-1], True
+        per_page = [plan_row_heights([t], rows, width, size_pt, floors)
+                    for t in texts]
+        if all(sum(h) <= limit for h in per_page):
+            return per_page, size_pt, size_pt != DETAIL_FONT_STEPS[0]
+    return ([_cap_heights(h, floors, limit) for h in per_page],
+            DETAIL_FONT_STEPS[-1], True)
 
 
 def _today() -> str:
@@ -374,12 +384,11 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                 warns.add(scr_id, "slide-split",
                           "상세 %d건이 슬롯 %d개를 넘어 %d장으로 나눴습니다"
                           % (len(scr["details"]), slot_count, len(pages)))
-            # 2패스: 배분이 확정됐으니 그 상세에 맞는 표 높이를 구한다. 화면
-            # 하나가 여러 장이어도 높이는 하나로 통일한다 — 장마다 다르면
-            # 이미지 자리가 장마다 달라지고, 넘길 때 표가 들썩여 보인다.
-            row_heights = size_pt = None
+            # 2패스: 배분이 확정됐으니 그 상세에 맞는 표 높이를 구한다.
+            # 높이는 장별로, 글자 크기는 화면 단위로 정해진다.
+            page_heights = size_pt = None
             if mode == "layout":
-                row_heights, size_pt, shrunk = _fit_tables(
+                page_heights, size_pt, shrunk = _fit_tables(
                     pages, area, count, rows, text_key)
                 if shrunk:
                     print("  [%s] 상세가 길어 설명 글자를 %.1fpt로 낮췄습니다"
@@ -388,7 +397,7 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
             for i, (page, page_image) in enumerate(pages):
                 if mode == "layout":
                     slide = _new_layout_slide(prs, layout, tpl, warns, scr_id,
-                                              row_heights, size_pt)
+                                              page_heights[i], size_pt)
                 else:
                     slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,

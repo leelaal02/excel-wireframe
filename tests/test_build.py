@@ -673,10 +673,11 @@ def test_build_layout_mode_short_details_keep_measured_heights(tmp_path: Path):
     assert tbl.top == 5253244
 
 
-def test_build_layout_mode_uses_one_table_height_across_pages(tmp_path: Path):
-    """한 화면이 여러 장으로 나뉘어도 표 높이는 하나로 통일한다.
+def test_build_layout_mode_gives_each_page_its_own_height(tmp_path: Path):
+    """장마다 자기 내용에 맞는 높이를 쓴다.
 
-    장마다 다르면 이미지 자리가 장마다 달라지고, 넘길 때 표가 들썩여 보인다.
+    전 장을 최악값으로 통일하면 긴 상세 하나가 모든 장의 표를 밀어 올려
+    스크린샷을 눌러 버린다.
     """
     descs = ["짧게"] * 40
     descs[25] = LONG_DESC          # 2장에만 긴 항목이 있다
@@ -685,10 +686,38 @@ def test_build_layout_mode_uses_one_table_height_across_pages(tmp_path: Path):
     assert len(prs.slides) == 2
     first = _tables_of(prs.slides[0])[0]
     second = _tables_of(prs.slides[1])[0]
-    assert first.height == second.height
-    assert first.top == second.top
-    assert [r.height for r in first.table.rows] == \
-        [r.height for r in second.table.rows]
+    # 1장은 짧은 상세뿐이라 실측 하한 그대로다
+    assert [r.height for r in first.table.rows] == [382457, 268746, 496168, 268746]
+    # 2장만 긴 항목 때문에 자란다
+    assert second.height > first.height
+    assert second.top < first.top
+
+
+def test_build_layout_mode_bottom_aligns_every_page(tmp_path: Path):
+    """장별 높이가 달라도 아래 끝은 모든 장에서 본문 영역 하단이다."""
+    area_bottom = 337940 + 6331421
+    descs = ["짧게"] * 40
+    descs[25] = LONG_DESC
+    prs = _build_layout(tmp_path, _screens_with_desc(descs))
+
+    for slide in prs.slides:
+        for tbl in _tables_of(slide):
+            assert tbl.top + tbl.height == area_bottom
+
+
+def test_build_layout_mode_uses_one_font_size_across_pages(tmp_path: Path):
+    """높이는 장별이지만 글자 크기는 화면 안에서 통일한다.
+
+    한 장만 작으면 장을 넘길 때 글자가 커졌다 작아졌다 한다.
+    """
+    prs = _build_layout(tmp_path, _screens_with_desc([LONG_DESC] * 40))
+
+    assert len(prs.slides) == 2
+    sizes = set()
+    for slide in prs.slides:
+        cell = _tables_of(slide)[0].table.cell(0, 1)
+        sizes.add(cell.text_frame.paragraphs[0].runs[0].font.size)
+    assert len(sizes) == 1
 
 
 def test_build_layout_mode_aligns_row_heights_across_tables(tmp_path: Path):
