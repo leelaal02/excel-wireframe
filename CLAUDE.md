@@ -26,6 +26,9 @@ Excel 화면설계서 → PPT 생성 Claude Skill을 만드는 저장소다.
 - 테스트 템플릿 픽스처는 `default_template.build_default_template`으로 템플릿을 만든 뒤
   `slide_layout`의 생성 경로로 예시 슬라이드를 한 장 얹는다. 픽스처용 pptx를 따로
   만들지 않는다.
+- 글자가 몇 줄이 되고 행이 얼마나 높아야 하는지는 `text_metrics`로만 센다.
+  폭·여백 기준은 `slide_layout.detail_text_width`가 단일 출처다 — 계산과 산출물이
+  다른 식을 쓰면 표가 자리에 안 맞는다.
 - 경고 코드는 아홉 개뿐이다: `no-image`, `no-detail`, `text-overflow`, `shape-not-found`,
   `slide-split`, `slot-shortage`, `screen-failed`, `image-convert-failed`, `orphan-row`.
 

@@ -27,14 +27,20 @@ from slide_fill import (
 )
 from slide_layout import (
     DEFAULT_CONTENT_AREA,
+    DETAIL_FONT_PT,
+    DETAIL_FONT_STEPS,
+    MIN_IMAGE_HEIGHT_EMU,
     add_detail_table,
     add_image_anchor,
+    detail_text_width,
     drop_empty_placeholders,
     find_layout,
     inherit_placeholders,
+    measured_row_heights,
     name_placeholders,
     split_content_area,
 )
+from text_metrics import plan_row_heights
 from verify import verify_output
 
 
@@ -69,11 +75,15 @@ def _drop_slide(prs, slide) -> None:
             return
 
 
-def _new_layout_slide(prs, layout, tpl, warns, screen_id):
+def _new_layout_slide(prs, layout, tpl, warns, screen_id,
+                      row_heights=None, size_pt=DETAIL_FONT_PT):
     """레이아웃으로 슬라이드를 만들고, 레이아웃에 없는 자리만 채워 넣는다.
 
     placeholder에 mapping이 정한 이름을 붙이므로, 값을 채우는 _fill_page는
     clone 모드와 똑같은 코드를 쓴다.
+
+    row_heights와 size_pt는 _fit_tables가 그 화면 전체를 보고 정한 값이다.
+    안 주면 실측 고정 높이와 7pt를 쓴다.
     """
     shapes_cfg = tpl.get("shapes", {})
     tables_cfg = tpl.get("detail_tables", {}) or {}
@@ -86,7 +96,7 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id):
     name_placeholders(slide, tpl.get("placeholders", {}), shapes_cfg,
                       warns, screen_id)
 
-    image_box, table_boxes = split_content_area(area, count, rows)
+    image_box, table_boxes = split_content_area(area, count, rows, row_heights)
     # shapes.image가 없으면 이미지 자리를 아예 그리지 않는다. 값을 채우는
     # _fill_page가 같은 키를 보고 이미지 블록 전체를 건너뛰기 때문이다 —
     # 여기서만 기본 이름으로 그려 두면 place_image가 지울 도형을 못 찾아
@@ -100,7 +110,7 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id):
     names = shapes_cfg.get("detail_tables") or []
     for i, box in enumerate(table_boxes):
         name = names[i] if i < len(names) else "상세표%d" % (i + 1)
-        add_detail_table(slide, box, rows, name)
+        add_detail_table(slide, box, rows, name, row_heights, size_pt)
     return slide
 
 
@@ -149,6 +159,47 @@ def plan_pages(scr: dict, slot_count: int, work_dir: Path, image_box,
         for chunk in chunk_details(part, slot_count):
             pages.append((chunk, piece))
     return pages, None
+
+
+def _cap_heights(heights, floors, limit: int) -> list[int]:
+    """표 높이가 한계를 넘으면 하한을 지키며 비례 축소한다.
+
+    가장 작은 글자로도 안 들어가는 상세가 있을 때 쓴다. 그냥 두면
+    split_content_area가 ValueError를 던지고 화면 단위 격리에 걸려 그 화면이
+    통째로 '[생성 실패]'가 된다 — 넘침을 막으려다 화면을 잃는 셈이다.
+
+    높이를 깎으면 텍스트가 셀을 넘치지만 표는 슬라이드 안에 남는다. 넘친 항목은
+    text-overflow 경고가 잡아 사람이 문장을 고치게 한다.
+    """
+    total = sum(heights)
+    if total <= limit:
+        return list(heights)
+    slack = total - sum(floors)   # 하한 위로 늘어난 양
+    room = limit - sum(floors)    # 하한 위로 허용된 양
+    if slack <= 0 or room <= 0:
+        return list(floors)
+    return [f + (h - f) * room // slack for h, f in zip(heights, floors)]
+
+
+def _fit_tables(pages, area, count: int, rows: int, text_key: str):
+    """화면 하나의 모든 장을 담을 행 높이와 설명 칸 글자 크기를 정한다.
+
+    2패스의 두 번째다. 배분(pages)은 이미 확정됐고, 여기서는 그 배분에 맞는
+    표 높이만 구한다 — 배분을 다시 돌리면 이미지 자리가 바뀌어 조각 수가 바뀌고,
+    조각 수가 바뀌면 배분이 또 바뀌어 순환에 빠진다.
+
+    (행 높이, 글자 크기, 낮췄는지)를 돌려준다.
+    """
+    floors = measured_row_heights(rows)
+    width = detail_text_width(area[2], count)
+    limit = area[3] - MIN_IMAGE_HEIGHT_EMU
+    texts = [[str(d.get(text_key, "") or "") for d in page] for page, _ in pages]
+
+    for size_pt in DETAIL_FONT_STEPS:
+        heights = plan_row_heights(texts, rows, width, size_pt, floors)
+        if sum(heights) <= limit:
+            return heights, size_pt, size_pt != DETAIL_FONT_STEPS[0]
+    return _cap_heights(heights, floors, limit), DETAIL_FONT_STEPS[-1], True
 
 
 def _today() -> str:
@@ -301,6 +352,8 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     failed_ids: list[str] = []
     screen_count = 0
     doc_meta = _doc_meta(screens_data, mapping)
+    # _fill_page가 셀에 넣는 것과 같은 필드를 봐야 표 높이가 내용과 맞는다.
+    text_key = mapping.get("options", {}).get("detail_text_source", "desc")
 
     for scr in screens_data.get("screens", []):
         screen_count += 1
@@ -321,9 +374,21 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                 warns.add(scr_id, "slide-split",
                           "상세 %d건이 슬롯 %d개를 넘어 %d장으로 나눴습니다"
                           % (len(scr["details"]), slot_count, len(pages)))
+            # 2패스: 배분이 확정됐으니 그 상세에 맞는 표 높이를 구한다. 화면
+            # 하나가 여러 장이어도 높이는 하나로 통일한다 — 장마다 다르면
+            # 이미지 자리가 장마다 달라지고, 넘길 때 표가 들썩여 보인다.
+            row_heights = size_pt = None
+            if mode == "layout":
+                row_heights, size_pt, shrunk = _fit_tables(
+                    pages, area, count, rows, text_key)
+                if shrunk:
+                    print("  [%s] 상세가 길어 설명 글자를 %.1fpt로 낮췄습니다"
+                          % (scr_id, size_pt))
+
             for i, (page, page_image) in enumerate(pages):
                 if mode == "layout":
-                    slide = _new_layout_slide(prs, layout, tpl, warns, scr_id)
+                    slide = _new_layout_slide(prs, layout, tpl, warns, scr_id,
+                                              row_heights, size_pt)
                 else:
                     slide = clone_slide(prs, src)
                 _fill_page(slide, scr, page,

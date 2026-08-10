@@ -9,8 +9,8 @@ from __future__ import annotations
 import copy
 from pathlib import Path
 
-from common import EMU_PER_INCH
 from PIL import Image
+from text_metrics import fits_lines, text_lines
 
 
 def find_shape(slide, name: str):
@@ -76,16 +76,25 @@ def set_cell_text(cell, text: str) -> None:
     _fill_text_frame(cell.text_frame, text)
 
 
-def estimate_overflow(text: str, cell_width_emu: int, limit_chars: int = 60) -> bool:
-    """셀 폭 대비 글자 수로 잘림 가능성을 추정한다.
+def estimate_overflow(text, cell_width_emu: int, cell_height_emu: int,
+                      size_pt: float) -> bool:
+    """셀에 든 글이 행 높이를 넘기는지 본다.
 
-    정확한 텍스트 측정은 폰트 메트릭이 필요해 과하다. 자동 축소로 서식을 무너뜨리는
-    것보다 사람이 확인하도록 경고만 올리는 편이 낫다.
+    build가 표를 미리 늘려 두므로 대개는 넘치지 않는다. 가장 작은 글자로도
+    안 들어가는 상세만 여기 걸린다 — 그런 문장은 사람이 줄여야 한다.
     """
     if not text:
         return False
-    inches = max(cell_width_emu / EMU_PER_INCH, 0.1)
-    return len(str(text)) > limit_chars * inches
+    return (text_lines(text, cell_width_emu, size_pt)
+            > fits_lines(cell_height_emu, size_pt))
+
+
+def _cell_font_pt(cell, default: float = 7.0) -> float:
+    """셀에 심어 둔 글자 크기. add_detail_table이나 템플릿이 정한 값이다."""
+    runs = cell.text_frame.paragraphs[0].runs
+    if runs and runs[0].font.size is not None:
+        return runs[0].font.size.pt
+    return default
 
 
 def collect_tables(slide, names: list[str] | None, warns=None, screen_id=None):
@@ -165,10 +174,17 @@ def fill_slots(
             if no_col < len(table.columns):
                 set_cell_text(table.cell(row, no_col), str(d.get("no", "") or ""))
             if text_col < len(table.columns):
-                set_cell_text(table.cell(row, text_col), text)
-                if estimate_overflow(text, width):
+                cell = table.cell(row, text_col)
+                set_cell_text(cell, text)
+                # 폭은 열 폭에서 좌우 여백을 뺀 값이다. 높이와 글자 크기는
+                # 그 셀에 실제로 들어간 값을 읽는다 — build가 화면마다 다르게
+                # 정할 수 있으므로 고정값으로 재면 어긋난다.
+                inner = width - (cell.margin_left or 0) - (cell.margin_right or 0)
+                if estimate_overflow(text, inner, table.rows[row].height,
+                                     _cell_font_pt(cell)):
                     warns.add(screen_id, "text-overflow",
-                              "%s번 항목의 설명이 셀 폭을 넘길 수 있습니다" % d.get("no", "?"))
+                              "%s번 항목의 설명이 셀을 넘길 수 있습니다"
+                              % d.get("no", "?"))
             filled += 1
         elif clear_unused:
             if no_col < len(table.columns):

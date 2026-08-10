@@ -605,3 +605,124 @@ def test_plan_pages_leaves_short_image_alone(tmp_path: Path):
 
     assert len(pages) == 1
     assert pages[0][1] is None
+
+
+# --- 상세표 높이 맞추기 -------------------------------------------------
+
+LONG_DESC = "가" * 300  # 7pt에서 15줄. 실측 행 높이(최대 4줄)로는 어림없다
+
+
+def _screens_with_desc(descs: list[str]) -> dict:
+    return {
+        "meta": {"title": "화면설계서", "source": "s.xlsx", "template": "t.pptx"},
+        "screens": [
+            {
+                "id": "SCR001",
+                "name": "이용기관 목록",
+                "images": [],
+                "fields": {},
+                "details": [{"no": str(i + 1), "desc": d}
+                            for i, d in enumerate(descs)],
+            }
+        ],
+    }
+
+
+def _tables_of(slide):
+    return [s for s in slide.shapes if s.has_table]
+
+
+def _build_layout(tmp_path: Path, screens: dict, mapping: dict | None = None):
+    tpl = _layout_template(tmp_path / "t.pptx")
+    mapping = mapping or _layout_mapping(tpl)
+    out = tmp_path / "out.pptx"
+    build(screens, mapping, tmp_path, out, Warnings())
+    return Presentation(str(out))
+
+
+def test_build_layout_mode_grows_tables_upward_for_long_details(tmp_path: Path):
+    """긴 상세가 들어가면 표가 위로 자란다. 아래 끝은 본문 영역에 붙어 있어야 한다."""
+    area_top, area_h = 337940, 6331421
+    short = _build_layout(tmp_path / "a", _screens_with_desc(["짧게"] * 4))
+    tall = _build_layout(tmp_path / "b", _screens_with_desc([LONG_DESC] * 4))
+
+    s_tbl = _tables_of(short.slides[0])[0]
+    t_tbl = _tables_of(tall.slides[0])[0]
+
+    assert t_tbl.height > s_tbl.height
+    assert t_tbl.top < s_tbl.top
+    # 두 경우 모두 아래 끝은 본문 영역 하단이다
+    assert s_tbl.top + s_tbl.height == area_top + area_h
+    assert t_tbl.top + t_tbl.height == area_top + area_h
+
+
+def test_build_layout_mode_keeps_tables_inside_the_slide(tmp_path: Path):
+    """어떤 길이가 와도 표 하단이 슬라이드를 넘지 않는다 — 이 작업의 목적이다."""
+    prs = _build_layout(tmp_path, _screens_with_desc([LONG_DESC] * 20))
+    height = int(prs.slide_height)
+    for slide in prs.slides:
+        for tbl in _tables_of(slide):
+            assert tbl.top + tbl.height <= height
+
+
+def test_build_layout_mode_short_details_keep_measured_heights(tmp_path: Path):
+    """짧은 상세만 있으면 실측 고정 높이 그대로다 — 기존 산출물이 바뀌면 안 된다."""
+    prs = _build_layout(tmp_path, _screens_with_desc(["짧게"] * 4))
+    tbl = _tables_of(prs.slides[0])[0]
+    assert [r.height for r in tbl.table.rows] == [382457, 268746, 496168, 268746]
+    assert tbl.top == 5253244
+
+
+def test_build_layout_mode_uses_one_table_height_across_pages(tmp_path: Path):
+    """한 화면이 여러 장으로 나뉘어도 표 높이는 하나로 통일한다.
+
+    장마다 다르면 이미지 자리가 장마다 달라지고, 넘길 때 표가 들썩여 보인다.
+    """
+    descs = ["짧게"] * 40
+    descs[25] = LONG_DESC          # 2장에만 긴 항목이 있다
+    prs = _build_layout(tmp_path, _screens_with_desc(descs))
+
+    assert len(prs.slides) == 2
+    first = _tables_of(prs.slides[0])[0]
+    second = _tables_of(prs.slides[1])[0]
+    assert first.height == second.height
+    assert first.top == second.top
+    assert [r.height for r in first.table.rows] == \
+        [r.height for r in second.table.rows]
+
+
+def test_build_layout_mode_aligns_row_heights_across_tables(tmp_path: Path):
+    """표 다섯 개가 나란히 놓이므로 행 높이가 어긋나면 안 된다."""
+    descs = ["짧게"] * 20
+    descs[13] = LONG_DESC          # 슬롯 13 -> 표 3, 행 1
+    prs = _build_layout(tmp_path, _screens_with_desc(descs))
+
+    tables = _tables_of(prs.slides[0])
+    assert len(tables) == 5
+    base = [r.height for r in tables[0].table.rows]
+    for t in tables[1:]:
+        assert [r.height for r in t.table.rows] == base
+    assert base[1] > 268746        # 행 1이 자랐다
+
+
+def test_build_layout_mode_shrinks_font_when_image_slot_would_vanish(tmp_path: Path):
+    """표가 이미지 자리를 다 먹으면 설명 글자를 낮춘다. 경고 코드는 늘리지 않는다."""
+    from pptx.util import Pt
+
+    prs = _build_layout(tmp_path, _screens_with_desc([LONG_DESC * 3] * 20))
+    tbl = _tables_of(prs.slides[0])[0]
+    run = tbl.table.cell(0, 1).text_frame.paragraphs[0].runs[0]
+
+    assert run.font.size < Pt(7)
+    assert run.font.size >= Pt(6)
+    # 번호 칸은 그대로다
+    num = tbl.table.cell(0, 0).text_frame.paragraphs[0].runs[0]
+    assert num.font.size == Pt(6.5)
+
+
+def test_build_layout_mode_never_lets_tables_eat_the_image_slot(tmp_path: Path):
+    """폰트를 낮춰서라도 이미지 자리를 1인치는 남긴다."""
+    prs = _build_layout(tmp_path, _screens_with_desc([LONG_DESC * 3] * 20))
+    area_top = 337940
+    tbl = _tables_of(prs.slides[0])[0]
+    assert tbl.top - area_top >= 914400

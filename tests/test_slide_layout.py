@@ -236,6 +236,59 @@ def test_add_detail_table_starts_empty():
         assert table.cell(r, 1).text == ""
 
 
+def test_split_content_area_grows_tables_upward_with_row_heights():
+    """행 높이를 넘기면 표 상단만 올라가고 아래 끝은 본문 영역 하단에 그대로 붙는다."""
+    area = DEFAULT_CONTENT_AREA
+    _, base = split_content_area(area, 5, 4)
+    tall = [600000, 600000, 600000, 600000]
+    image_box, boxes = split_content_area(area, 5, 4, tall)
+
+    assert boxes[0][3] == sum(tall)
+    assert boxes[0][3] > base[0][3]
+    # 아래 끝은 그대로
+    assert boxes[0][1] + boxes[0][3] == area[1] + area[3]
+    # 상단이 올라간 만큼 이미지 자리가 줄어든다
+    assert boxes[0][1] < base[0][1]
+    assert image_box[1] == area[1]
+    assert image_box[1] + image_box[3] == boxes[0][1]
+
+
+def test_split_content_area_ignores_none_row_heights():
+    """안 넘기면 실측 고정 높이를 그대로 쓴다 — 기존 동작이 바뀌면 안 된다."""
+    assert split_content_area(DEFAULT_CONTENT_AREA, 5, 4) == \
+        split_content_area(DEFAULT_CONTENT_AREA, 5, 4, None)
+
+
+def test_split_content_area_raises_when_row_heights_eat_the_image_slot():
+    with pytest.raises(ValueError) as exc:
+        split_content_area(DEFAULT_CONTENT_AREA, 5, 4, [1600000] * 4)
+    assert "이미지" in str(exc.value)
+
+
+def test_add_detail_table_uses_given_row_heights():
+    prs = _prs()
+    slide = prs.slides.add_slide(find_layout(prs, "Title and Content"))
+    heights = [500000, 400000, 600000, 300000]
+    frame = add_detail_table(slide, (0, 0, 1971135, sum(heights)), 4, "상세표1",
+                             row_heights=heights)
+    assert [r.height for r in frame.table.rows] == heights
+
+
+def test_add_detail_table_shrinks_only_the_text_column_font():
+    """번호 칸은 한두 글자라 넘칠 일이 없다. 설명 칸만 낮춘다."""
+    prs = _prs()
+    slide = prs.slides.add_slide(find_layout(prs, "Title and Content"))
+    table = add_detail_table(slide, (0, 0, 1971135, 1416117), 4, "상세표1",
+                             size_pt=6.0).table
+
+    num, txt = table.cell(0, 0), table.cell(0, 1)
+    assert txt.text_frame.paragraphs[0].runs[0].font.size == Pt(6)
+    assert num.text_frame.paragraphs[0].runs[0].font.size == Pt(6.5)
+    # 나머지 실측 서식은 그대로다
+    assert txt.text_frame.paragraphs[0].runs[0].font.name == "맑은 고딕"
+    assert txt.margin_bottom == 0
+
+
 def test_add_image_anchor_uses_the_box():
     prs = _prs()
     slide = prs.slides.add_slide(find_layout(prs, "Title and Content"))

@@ -141,6 +141,11 @@ DEFAULT_CONTENT_AREA = (-12319, 337940, 9957099, 6331421)
 ROW_HEIGHTS = [382457, 268746, 496168, 268746]
 COL_WIDTH_RATIO = (160215, 1810920)
 MIN_IMAGE_HEIGHT_EMU = EMU_PER_INCH  # 1인치
+TEXT_CELL_MARGIN = 9525              # 설명 칸 좌우 여백
+DETAIL_FONT_PT = 7.0                 # 설명 칸 실측 글자 크기
+# 표를 늘려도 이미지 자리가 모자랄 때만 이 순서로 낮춘다. 6pt 밑으로는 안 간다 —
+# 인쇄하면 읽히지 않아 설계서 구실을 못 한다.
+DETAIL_FONT_STEPS = (7.0, 6.5, 6.0)
 
 SLOT_BORDER = RGBColor(0xBB, 0xBB, 0xBB)
 SLOT_FILL = RGBColor(0xF5, 0xF6, 0xF8)
@@ -156,28 +161,58 @@ NO_COL_SCHEME = ("tx2", 40000, 60000)   # 번호 칸 배경
 _EDGES = ("lnL", "lnR", "lnT", "lnB")
 
 
-def _row_heights(rows_per_table: int) -> list[int]:
-    """실측 행높이를 쓰되, 4행을 넘으면 마지막 값을 반복한다."""
+def measured_row_heights(rows_per_table: int) -> list[int]:
+    """실측 행높이를 쓰되, 4행을 넘으면 마지막 값을 반복한다.
+
+    내용 기반으로 행을 늘릴 때 이 값이 하한이 된다 — 짧은 상세만 있는 화면은
+    원본 화면설계서와 똑같은 높이로 나와야 한다.
+    """
     if rows_per_table <= len(ROW_HEIGHTS):
         return ROW_HEIGHTS[:rows_per_table]
     tail = [ROW_HEIGHTS[-1]] * (rows_per_table - len(ROW_HEIGHTS))
     return ROW_HEIGHTS + tail
 
 
-def split_content_area(area, table_count: int, rows_per_table: int):
+def detail_text_width(area_width: int, table_count: int) -> int:
+    """설명 칸에서 글자가 실제로 놓이는 폭. 줄 수 계산의 기준이다.
+
+    add_detail_table의 열 분할·여백과 같은 식을 써야 계산과 산출물이 어긋나지
+    않는다. 마지막 표는 나머지를 흡수해 몇 EMU 넓지만, 한 글자에 못 미치는
+    차이라 첫 표 기준으로 잡는다.
+    """
+    table_w = area_width // table_count
+    no_w = table_w * COL_WIDTH_RATIO[0] // sum(COL_WIDTH_RATIO)
+    return table_w - no_w - 2 * TEXT_CELL_MARGIN
+
+
+def split_content_area(area, table_count: int, rows_per_table: int,
+                       row_heights=None):
     """본문 영역을 이미지 자리와 상세표 자리로 나눈다.
 
     표는 아래쪽에 붙이고 폭을 균등 분할한다. 원본의 표 간격은 0.01인치라
     사실상 붙어 있으므로 간격을 두지 않는다. 이미지는 위쪽 나머지를 전부 쓴다.
+
+    row_heights를 주면 그 높이로 표를 잡는다. 상세 텍스트가 길어 행이 자랄 때
+    표를 미리 위로 늘려 두는 용도다 — 표의 아래 끝은 그대로 두고 상단만 올라가며,
+    이미지 자리가 그만큼 줄어든다. 안 주면 실측 고정 높이를 쓴다.
     """
     left, top, width, height = area
-    table_h = sum(_row_heights(rows_per_table))
+    heights = (list(row_heights) if row_heights
+               else measured_row_heights(rows_per_table))
+    table_h = sum(heights)
     table_top = top + height - table_h
     image_h = table_top - top
 
     if image_h < MIN_IMAGE_HEIGHT_EMU:
+        if row_heights:
+            raise ValueError(
+                "상세 텍스트에 필요한 표 높이가 %.2fin이라 이미지 자리가 "
+                "%.2fin로 줄어듭니다(최소 %.2fin 필요)."
+                % (table_h / EMU_PER_INCH, image_h / EMU_PER_INCH,
+                   MIN_IMAGE_HEIGHT_EMU / EMU_PER_INCH)
+            )
         max_rows = 0
-        while sum(_row_heights(max_rows + 1)) <= height - MIN_IMAGE_HEIGHT_EMU:
+        while sum(measured_row_heights(max_rows + 1)) <= height - MIN_IMAGE_HEIGHT_EMU:
             max_rows += 1
         raise ValueError(
             "rows_per_table=%d면 이미지 자리 높이가 %.2fin로 너무 작아집니다"
@@ -285,8 +320,15 @@ def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom, font
         run.font.name = font
 
 
-def add_detail_table(slide, box, rows_per_table: int, name: str):
-    """상세표 하나를 만들고 실측 서식을 적용한다. 셀은 비운 채로 둔다."""
+def add_detail_table(slide, box, rows_per_table: int, name: str,
+                     row_heights=None, size_pt: float = 7.0):
+    """상세표 하나를 만들고 실측 서식을 적용한다. 셀은 비운 채로 둔다.
+
+    row_heights를 주면 그 높이로 행을 잡는다(split_content_area와 같은 값을
+    넘겨야 표가 자리에 정확히 들어간다). size_pt는 설명 칸 글자 크기다 —
+    표를 늘려도 이미지 자리가 모자랄 때만 실측값 7.0에서 낮춘다. 번호 칸은
+    한두 글자라 넘칠 일이 없어 6.5pt 그대로 둔다.
+    """
     left, top, width, height = box
     frame = slide.shapes.add_table(rows_per_table, 2, Emu(left), Emu(top),
                                    Emu(width), Emu(height))
@@ -297,7 +339,9 @@ def add_detail_table(slide, box, rows_per_table: int, name: str):
     no_w = width * COL_WIDTH_RATIO[0] // ratio_total
     table.columns[0].width = Emu(no_w)
     table.columns[1].width = Emu(width - no_w)
-    for ri, rh in enumerate(_row_heights(rows_per_table)):
+    heights = (list(row_heights) if row_heights
+               else measured_row_heights(rows_per_table))
+    for ri, rh in enumerate(heights):
         table.rows[ri].height = Emu(rh)
 
     _set_table_style(table, TABLE_STYLE_PLAIN)
@@ -305,7 +349,7 @@ def add_detail_table(slide, box, rows_per_table: int, name: str):
     for r in range(rows_per_table):
         _format_cell(table.cell(r, 0), 6.5, True, PP_ALIGN.CENTER,
                      MSO_ANCHOR.MIDDLE, 18000, 18000)
-        _format_cell(table.cell(r, 1), 7.0, False, PP_ALIGN.LEFT, None,
+        _format_cell(table.cell(r, 1), size_pt, False, PP_ALIGN.LEFT, None,
                      9525, 0, font="맑은 고딕")
         # 여백·정렬을 먼저 넣고 테두리를 그린다. _format_cell이 margin을 쓰면
         # python-pptx가 tcPr을 새로 만들 수 있어, 테두리를 먼저 그리면 지워진다.

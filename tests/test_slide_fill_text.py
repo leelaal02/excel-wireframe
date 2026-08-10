@@ -60,9 +60,35 @@ def test_set_cell_text_accepts_empty(tmp_path: Path):
     assert cell.text == ""
 
 
+# 실측 설명 칸: 폭 1810509, 두 번째 행 높이 268746(7pt 두 줄)
+DESC_W, ROW_H = 1810509, 268746
+
+
 def test_estimate_overflow():
-    assert estimate_overflow("짧은 글", 1974850) is False
-    assert estimate_overflow("가" * 400, 1974850) is True
+    assert estimate_overflow("짧은 글", DESC_W, ROW_H, 7.0) is False
+    assert estimate_overflow("가" * 400, DESC_W, ROW_H, 7.0) is True
+
+
+def test_estimate_overflow_uses_the_row_height():
+    """행에 들어가는 줄 수를 넘어야 넘침이다. 40자는 두 줄이라 딱 맞는다."""
+    assert estimate_overflow("가" * 40, DESC_W, ROW_H, 7.0) is False
+    assert estimate_overflow("가" * 41, DESC_W, ROW_H, 7.0) is True
+
+
+def test_estimate_overflow_relaxes_in_a_taller_row():
+    """같은 글이라도 행이 높으면 넘치지 않는다. 세 번째 행은 네 줄을 담는다."""
+    assert estimate_overflow("가" * 41, DESC_W, 496168, 7.0) is False
+
+
+def test_estimate_overflow_relaxes_with_smaller_font():
+    """글자를 낮추면 같은 행에 더 들어간다."""
+    assert estimate_overflow("가" * 41, DESC_W, ROW_H, 7.0) is True
+    assert estimate_overflow("가" * 41, DESC_W, ROW_H, 6.0) is False
+
+
+def test_estimate_overflow_ignores_empty_text():
+    assert estimate_overflow("", DESC_W, ROW_H, 7.0) is False
+    assert estimate_overflow(None, DESC_W, ROW_H, 7.0) is False
 
 
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
