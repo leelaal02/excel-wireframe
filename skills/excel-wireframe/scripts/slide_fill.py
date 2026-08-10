@@ -52,6 +52,13 @@ def _fill_text_frame(tf, text: str) -> None:
     )
     base_rPr = copy.deepcopy(rPr) if rPr is not None else None
 
+    # 문단 속성(줄간격·정렬)도 물려줘야 한다. 런 속성만 옮기면 둘째 줄부터
+    # 줄간격이 폰트 기본값으로 돌아가 행이 계산보다 커진다.
+    pPr = p0._p.find(
+        "{http://schemas.openxmlformats.org/drawingml/2006/main}pPr"
+    )
+    base_pPr = copy.deepcopy(pPr) if pPr is not None else None
+
     base_run.text = lines[0]
     for extra in p0.runs[1:]:
         extra._r.getparent().remove(extra._r)
@@ -60,6 +67,9 @@ def _fill_text_frame(tf, text: str) -> None:
 
     for line in lines[1:]:
         p = tf.add_paragraph()
+        # pPr은 a:p의 첫 자식이어야 한다.
+        if base_pPr is not None:
+            p._p.insert(0, copy.deepcopy(base_pPr))
         run = p.add_run()
         run.text = line
         if base_rPr is not None:

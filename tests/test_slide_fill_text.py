@@ -123,3 +123,21 @@ def test_set_text_replaces_auto_field(tmp_path: Path):
 
     assert shape.text_frame.text == "2026-06-25"
     assert shape._element.find(".//{%s}fld" % A_NS) is None
+
+
+def test_set_cell_text_keeps_paragraph_spacing_on_extra_lines(tmp_path: Path):
+    """줄바꿈으로 늘어난 문단도 첫 문단의 줄간격을 물려받아야 한다.
+
+    안 물려받으면 둘째 줄부터 폰트 기본 줄높이가 쓰여, 계산한 행 높이보다
+    실제 렌더링이 커진다 — 표가 슬라이드를 넘는 원인이다.
+    """
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    table = next(s for s in prs.slides[0].shapes if s.has_table).table
+    cell = table.cell(0, 1)
+    cell.text_frame.paragraphs[0].line_spacing = 0.95
+
+    set_cell_text(cell, "첫 줄\n둘째 줄\n셋째 줄")
+
+    paras = cell.text_frame.paragraphs
+    assert len(paras) == 3
+    assert all(p.line_spacing == 0.95 for p in paras)
