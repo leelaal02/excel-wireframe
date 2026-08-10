@@ -25,7 +25,7 @@ from PIL import Image
 BADGE_MIN_PX = 60          # 이보다 작은 덩어리는 잡티
 BADGE_MIN_SIDE = 10
 BADGE_MAX_SIDE = 60
-BADGE_ASPECT = (0.6, 1.6)  # 원이므로 가로세로가 비슷하다
+BADGE_ASPECT = (0.6, 1.6)  # 원이므로 가로세로가 비슷
 
 # --- 여백 띠 검출 ---
 QUIET_STD = 12             # 행의 색 분산이 이보다 낮으면 조용한 행
@@ -38,46 +38,49 @@ CUT_MIN_RATIO = 0.5        # 목표 높이의 이 배수부터 자를 곳을 찾
 CUT_MAX_RATIO = 1.5        # 이 배수를 넘으면 여백이 없어도 자른다
 
 
+# detect_badges() 함수: 화면에 있는 SoM 노란 번호를 모두 찾는 것
 def detect_badges(img: Image.Image) -> list[tuple[int, int]]:
     """SoM 뱃지(노란 원)의 중심 좌표를 (y, x) 목록으로 돌려준다."""
-    a = np.asarray(img.convert("RGB")).astype(np.int16)
+    a = np.asarray(img.convert("RGB")).astype(np.int16)  # (1) 이미지를 RGB 배열로 변환
     r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
-    mask = (r > 180) & (g > 140) & (b < 110) & (r - b > 90) & (g - b > 60)
+    mask = (r > 180) & (g > 140) & (b < 110) & (r - b > 90) & (g - b > 60)  # (2) 노란색만 추출
 
-    h, w = mask.shape
-    seen = np.zeros_like(mask, dtype=bool)
-    out: list[tuple[int, int]] = []
-    ys, xs = np.nonzero(mask)
-    for i in np.argsort(ys):
-        y0, x0 = int(ys[i]), int(xs[i])
+    h, w = mask.shape # mask의 크기를 가져오기
+    seen = np.zeros_like(mask, dtype=bool) # 이미 방문한 픽셀인지 기록하는 배열을 생성
+    out: list[tuple[int, int]] = [] # 최종적으로 검출한 뱃지 중심 좌표를 저장할 리스트
+    ys, xs = np.nonzero(mask) # mask에서 True인 픽셀의 좌표를 모두 찾기
+    for i in np.argsort(ys): # y좌표(위에서 아래 순서)를 기준으로 픽셀 반복
+        y0, x0 = int(ys[i]), int(xs[i]) # 현재 탐색을 시작할 픽셀의 좌표를 가져
         if seen[y0, x0]:
             continue
-        stack = [(y0, x0)]
-        seen[y0, x0] = True
-        pix = []
-        while stack:
-            y, x = stack.pop()
-            pix.append((y, x))
-            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                ny, nx = y + dy, x + dx
-                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]:
-                    seen[ny, nx] = True
-                    stack.append((ny, nx))
-        if len(pix) < BADGE_MIN_PX:
+        stack = [(y0, x0)]   # (3) 연결된 픽셀 찾기
+        seen[y0, x0] = True  # 시작 픽셀을 방문 처리
+        pix = [] # 현재 덩어리에 속하는 픽셀들을 저장할 리스트
+        while stack: # 스택이 빌 때까지 DFS를 수행
+            y, x = stack.pop() # 스택에서 픽셀 하나를 꺼내기
+            pix.append((y, x)) # 현재 픽셀을 이 덩어리에 추가
+            for dy, dx in ((1, 0), (-1, 0), (0, 1), (0, -1)): # 현재 픽셀의 상, 하, 좌, 우 네 방향을 확인
+                ny, nx = y + dy, x + dx # 이웃 픽셀의 좌표를 계산
+                if 0 <= ny < h and 0 <= nx < w and mask[ny, nx] and not seen[ny, nx]: 
+                # 이미지 범위를 벗어나지 않았는지 확인, 이웃 픽셀이 노란색(True)인지 확인
+                    seen[ny, nx] = True # 방문 처리
+                    stack.append((ny, nx)) # 이어진 픽셀이므로 스택에 넣어 나중에 계속 탐색
+        if len(pix) < BADGE_MIN_PX:  # (4) 너무 작은 것은 제거
             continue
-        p = np.array(pix)
+        p = np.array(pix) # 리스트를 NumPy 배열로 변환하여 계산
         y1, y2 = int(p[:, 0].min()), int(p[:, 0].max())
         x1, x2 = int(p[:, 1].min()), int(p[:, 1].max())
         bh, bw = y2 - y1 + 1, x2 - x1 + 1
-        if not (BADGE_MIN_SIDE <= bh <= BADGE_MAX_SIDE):
+        if not (BADGE_MIN_SIDE <= bh <= BADGE_MAX_SIDE): # 높이가 너무 작거나 크면 제외
             continue
-        if not (BADGE_MIN_SIDE <= bw <= BADGE_MAX_SIDE):
+        if not (BADGE_MIN_SIDE <= bw <= BADGE_MAX_SIDE): # 너비가 너무 작거나 크면 제외
             continue
-        if not (BADGE_ASPECT[0] <= bw / bh <= BADGE_ASPECT[1]):
+        if not (BADGE_ASPECT[0] <= bw / bh <= BADGE_ASPECT[1]): # (5) 원형에 가까운지 확인
             continue
-        out.append(((y1 + y2) // 2, (x1 + x2) // 2))
-    out.sort()
-    return out
+        out.append(((y1 + y2) // 2, (x1 + x2) // 2))  # (6) 중심 좌표를 계산하여 out 리스트에 저장
+    out.sort() # 중심 좌표를 y축 기준(위에서 아래 순서)으로 정렬
+    return out # 최종적으로 검출된 모든 SoM 뱃지의 중심 좌표를 반환
+
 
 
 def find_quiet_bands(img: Image.Image) -> list[tuple[int, int]]:
@@ -105,7 +108,12 @@ def find_quiet_bands(img: Image.Image) -> list[tuple[int, int]]:
     return bands
 
 
+
 def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int, int]]:
+# height   : 원본 이미지의 높이(px)
+# target_h : PPT 이미지 영역에 맞춘 목표 분할 높이(px)
+# bands    : 검출된 여백의 위치 목록 [(시작 y, 끝 y) ...]
+# badges   : 검출된 SoM 뱃지의 중심 좌표 목록 [(y, x) ...]
     """이미지를 (시작y, 끝y, 뱃지수) 조각으로 나눈다.
 
     자를 곳은 목표 높이의 CUT_MIN_RATIO~CUT_MAX_RATIO 범위에서 고른다. 그 안에
@@ -113,11 +121,11 @@ def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int,
     그것도 없으면 범위 끝에서 자른다.
     """
     if target_h <= 0:
-        return [(0, height - 1, len(badges))]
+        return [(0, height - 1, len(badges))] # 분할하지 않고 이미지 전체를 하나의 조각으로 반환
 
-    badge_ys = [y for y, _ in badges]
-    cuts: list[tuple[int, int, int]] = []
-    top = 0
+    badge_ys = [y for y, _ in badges] # SoM 뱃지의 y좌표만 따로 추출,  # [결과값 for 변수 in 반복대상]
+    cuts: list[tuple[int, int, int]] = [] # 최종 분할 결과를 저장하는 리스트
+    top = 0 # 현재 조각의 시작 위치(y좌표)
     while top < height:
         if height - top <= target_h * CUT_MAX_RATIO:
             bottom = height - 1
