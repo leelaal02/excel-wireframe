@@ -48,14 +48,16 @@ def test_text_lines_shrinks_with_smaller_font():
 
 
 def test_row_height_grows_with_lines():
+    from text_metrics import LINE_SPACING
     one = row_height(1, 7.0)
     two = row_height(2, 7.0)
-    assert two - one == int(7.0 * 1.2 * EMU_PER_PT)
+    assert two - one == int(7.0 * LINE_SPACING * EMU_PER_PT)
 
 
 def test_row_height_includes_margins():
+    from text_metrics import LINE_SPACING
     assert row_height(1, 7.0, margin_top=9525, margin_bottom=0) == \
-        int(7.0 * 1.2 * EMU_PER_PT) + 9525
+        int(7.0 * LINE_SPACING * EMU_PER_PT) + 9525
 
 
 def test_plan_row_heights_returns_one_height_per_row():
@@ -139,3 +141,16 @@ def test_fits_lines_never_returns_zero():
     from text_metrics import fits_lines
     assert fits_lines(1, 7.0) == 1
     assert fits_lines(0, 7.0) == 1
+
+
+def test_line_spacing_derives_from_ratio():
+    """계수는 유도값이다. 셀 서식에 들어가는 배수와 따로 놀면 안 된다."""
+    from text_metrics import BASE_LINE_SPACING, LINE_SPACING, LINE_SPACING_RATIO
+    assert LINE_SPACING == BASE_LINE_SPACING * LINE_SPACING_RATIO
+    assert LINE_SPACING < BASE_LINE_SPACING
+
+
+def test_default_margin_top_is_the_shared_cell_margin():
+    """행 높이 계산과 셀 서식이 같은 여백 값을 봐야 표가 자리에 맞는다."""
+    from text_metrics import CELL_MARGIN, DEFAULT_MARGIN_TOP
+    assert DEFAULT_MARGIN_TOP == CELL_MARGIN

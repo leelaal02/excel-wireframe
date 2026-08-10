@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 from common import Warnings
+from text_metrics import CELL_MARGIN
 from pptx import Presentation
 from pptx.util import Emu, Pt
 from slide_layout import (
@@ -218,7 +219,7 @@ def test_add_detail_table_applies_measured_formatting():
 
     num, txt = table.cell(0, 0), table.cell(0, 1)
     assert num.margin_left == 18000
-    assert txt.margin_left == 9525
+    assert txt.margin_left == CELL_MARGIN
     assert txt.margin_bottom == 0
     assert num.text_frame.paragraphs[0].runs[0].font.size == Pt(6.5)
     assert num.text_frame.paragraphs[0].runs[0].font.bold is True
@@ -353,3 +354,19 @@ def test_add_detail_table_borders_follow_row_count():
     for r in range(6):
         pr = table.cell(r, 1)._tc.find("{%s}tcPr" % A_NS)
         assert pr.find("{%s}lnB" % A_NS) is not None, r
+
+
+def test_add_detail_table_sets_line_spacing_on_text_cells():
+    """계산에 쓰는 줄간격이 셀 서식에도 들어가야 렌더링과 계산이 맞는다."""
+    from text_metrics import LINE_SPACING_RATIO
+    table = _new_table().table
+    para = table.cell(0, 1).text_frame.paragraphs[0]
+    assert para.line_spacing == LINE_SPACING_RATIO
+
+
+def test_add_detail_table_text_margin_comes_from_the_shared_constant():
+    """여백이 세 곳에 흩어져 있으면 계산과 산출물이 어긋난다."""
+    table = _new_table().table
+    txt = table.cell(0, 1)
+    assert txt.margin_left == CELL_MARGIN
+    assert txt.margin_top == CELL_MARGIN

@@ -11,6 +11,7 @@ import copy
 from lxml.etree import SubElement
 
 from common import EMU_PER_INCH
+from text_metrics import CELL_MARGIN, LINE_SPACING_RATIO
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.enum.text import MSO_ANCHOR, PP_ALIGN
@@ -141,7 +142,7 @@ DEFAULT_CONTENT_AREA = (-12319, 337940, 9957099, 6331421)
 ROW_HEIGHTS = [382457, 268746, 496168, 268746]
 COL_WIDTH_RATIO = (160215, 1810920)
 MIN_IMAGE_HEIGHT_EMU = EMU_PER_INCH  # 1인치
-TEXT_CELL_MARGIN = 9525              # 설명 칸 좌우 여백
+TEXT_CELL_MARGIN = CELL_MARGIN       # 설명 칸 여백. 계산과 서식이 같은 값을 쓴다
 DETAIL_FONT_PT = 7.0                 # 설명 칸 실측 글자 크기
 # 표를 늘려도 이미지 자리가 모자랄 때만 이 순서로 낮춘다. 6pt 밑으로는 안 간다 —
 # 인쇄하면 읽히지 않아 설계서 구실을 못 한다.
@@ -303,7 +304,8 @@ def _draw_cell_edges(cell, shaded: bool) -> None:
         _scheme_fill(pr, "solidFill", NO_COL_SCHEME)
 
 
-def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom, font=None):
+def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom,
+                 font=None, line_spacing=None):
     cell.margin_left = Emu(margin)
     cell.margin_right = Emu(margin)
     cell.margin_top = Emu(margin)
@@ -312,6 +314,10 @@ def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom, font
         cell.vertical_anchor = anchor
     p = cell.text_frame.paragraphs[0]
     p.alignment = align
+    # 줄간격을 명시하면 text_metrics의 LINE_SPACING과 렌더링이 맞는다.
+    # 안 넣으면 폰트 기본 줄높이가 쓰여 계산보다 행이 커진다.
+    if line_spacing is not None:
+        p.line_spacing = line_spacing
     run = p.add_run()
     run.text = ""
     run.font.size = Pt(size_pt)
@@ -350,7 +356,8 @@ def add_detail_table(slide, box, rows_per_table: int, name: str,
         _format_cell(table.cell(r, 0), 6.5, True, PP_ALIGN.CENTER,
                      MSO_ANCHOR.MIDDLE, 18000, 18000)
         _format_cell(table.cell(r, 1), size_pt, False, PP_ALIGN.LEFT, None,
-                     9525, 0, font="맑은 고딕")
+                     TEXT_CELL_MARGIN, 0, font="맑은 고딕",
+                     line_spacing=LINE_SPACING_RATIO)
         # 여백·정렬을 먼저 넣고 테두리를 그린다. _format_cell이 margin을 쓰면
         # python-pptx가 tcPr을 새로 만들 수 있어, 테두리를 먼저 그리면 지워진다.
         _draw_cell_edges(table.cell(r, 0), shaded=True)

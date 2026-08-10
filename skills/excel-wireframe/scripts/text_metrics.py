@@ -16,8 +16,13 @@ from __future__ import annotations
 import unicodedata
 
 EMU_PER_PT = 12700
-LINE_SPACING = 1.2         # PowerPoint 기본 줄간격
-DEFAULT_MARGIN_TOP = 9525  # 설명 칸 여백 (slide_layout._format_cell)
+BASE_LINE_SPACING = 1.2      # 맑은 고딕이 기본으로 잡는 줄높이 (폰트 크기 대비)
+LINE_SPACING_RATIO = 0.95    # 셀 문단에 실제로 넣는 줄간격 배수
+# 계산에 쓰는 줄높이. slide_layout이 LINE_SPACING_RATIO를 셀 서식에 그대로
+# 넣으므로 이 값과 산출물이 일치한다 — 한쪽만 바꾸면 표가 자리에 안 맞는다.
+LINE_SPACING = BASE_LINE_SPACING * LINE_SPACING_RATIO
+CELL_MARGIN = 4762           # 설명 칸 여백. slide_layout이 셀 서식에 그대로 쓴다
+DEFAULT_MARGIN_TOP = CELL_MARGIN
 
 
 def _char_width(ch: str, size_emu: int) -> int:
