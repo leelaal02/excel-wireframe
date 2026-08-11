@@ -54,6 +54,19 @@ def _slides_for_screen(slides: list[dict], title_name: str | None,
     ]
 
 
+def _slides_by_screen_id(slides: list[dict], id_name: str,
+                         screen_id: str) -> list[dict]:
+    """화면ID 도형에 이 화면의 ID가 찍힌 슬라이드를 모두 찾는다.
+
+    분할된 화면은 장마다 같은 ID를 달고 나오므로 여러 장이 잡히는 게 정상이다.
+    """
+    return [
+        s for s in slides
+        if any(sh["name"] == id_name and sh["text"].strip() == screen_id
+               for sh in s["shapes"])
+    ]
+
+
 def verify_output(out_path: Path, screens_data: dict, mapping: dict,
                   expected_slides: int, work_dir: Path | None = None) -> dict:
     report = scan_presentation(Path(out_path))
@@ -69,7 +82,29 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
     )
 
     title_name = mapping.get("template", {}).get("shapes", {}).get("title")
+    id_name = mapping.get("template", {}).get("shapes", {}).get("screen_id")
     screens = screens_data.get("screens", [])
+
+    def slides_of(scr: dict) -> list[dict]:
+        """화면의 **내용**(이미지·상세)을 검사할 슬라이드를 고른다.
+
+        화면명은 실무에서 겹친다 — '목록'·'상세'·'등록'은 메뉴마다 되풀이되고
+        구분은 화면ID가 한다. 이름으로 고르면 동명 화면끼리 서로의 슬라이드를
+        집어삼켜 상세 건수가 합산되므로, 화면ID 도형이 지정돼 있으면 그 값으로
+        짚는다. build가 그 도형에 넣는 것과 같은 값이라 정확히 맞는다.
+
+        ID로 한 장도 못 찾으면 이름 매칭으로 물러선다 — 템플릿에 화면ID 도형이
+        없으면(shape-not-found) ID가 애초에 안 찍히므로, 그 경우까지 "슬라이드를
+        찾지 못함"으로 몰면 멀쩡한 결과물이 실패한다.
+
+        '화면명 반영' 검사는 이 함수를 쓰지 않는다. 그쪽은 제목에 화면명이
+        들어갔는지를 보는 검사라 이름으로 찾는 것이 곧 검사 내용이다.
+        """
+        if id_name and scr.get("id"):
+            found = _slides_by_screen_id(slides, id_name, scr["id"])
+            if found:
+                return found
+        return _slides_for_screen(slides, title_name, scr["name"])
 
     # expected_slides는 screens_data 자체에서 파생되므로, 화면이 통째로 0개면
     # 슬라이드 수 검사도 "기대 0장, 실제 0장"으로 공허하게 통과하고 나머지
@@ -101,7 +136,7 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
 
     image_issues: list[str] = []
     for scr in screens:
-        matches = _slides_for_screen(slides, title_name, scr["name"])
+        matches = slides_of(scr)
         if not matches:
             image_issues.append("%s: 화면에 해당하는 슬라이드를 찾지 못함" % scr["id"])
             continue
@@ -150,7 +185,7 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
 
         detail_issues: list[str] = []
         for scr in screens:
-            matches = _slides_for_screen(slides, title_name, scr["name"])
+            matches = slides_of(scr)
             if not matches:
                 continue  # 화면명 반영 검사가 이미 이 화면을 짚었다
             expected = len(scr.get("details", []))

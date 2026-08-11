@@ -84,6 +84,39 @@ def test_verify_does_not_double_count_when_screen_name_is_a_substring(tmp_path: 
     assert all(c["ok"] for c in result["checks"])
 
 
+def test_verify_does_not_double_count_when_two_screens_share_a_name(tmp_path: Path):
+    """회귀 4: 화면명이 **완전히 같은** 화면이 둘 있으면 이름 매칭은 두 화면
+    모두에 같은 슬라이드 묶음을 돌려준다. 상세 항목 수 검사는 매치된 슬라이드를
+    전부 합산하므로 두 화면 몫이 서로에게 더해져, 정상 생성물이 실패로 보고됐다.
+
+    끝을 고정한 정규식(회귀 2)은 부분 문자열만 막을 뿐 완전 동명은 못 막는다.
+    화면설계서에서 '목록'·'상세'·'등록' 같은 화면명은 메뉴마다 되풀이되고
+    구분은 화면ID가 한다 — 내용 검사도 이름이 아니라 그 ID로 화면을 짚어야 한다.
+    """
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "S1.png")
+    make_png(tmp_path / "images" / "S2.png")
+    data = {
+        "meta": {"title": "화면설계서"},
+        "screens": [
+            {"id": "SCR001", "name": "목록", "images": ["images/S1.png"],
+             "fields": {}, "details": [{"no": str(i + 1), "desc": "a%d" % i}
+                                       for i in range(3)]},
+            {"id": "SCR002", "name": "목록", "images": ["images/S2.png"],
+             "fields": {}, "details": [{"no": str(i + 1), "desc": "b%d" % i}
+                                       for i in range(5)]},
+        ],
+    }
+    out = tmp_path / "out.pptx"
+    report = build(data, _mapping(tpl), tmp_path, out, Warnings())
+    assert report["slides"] == 2
+
+    result = verify_output(out, data, _mapping(tpl), report["slides"])
+    checks = {c["name"]: c for c in result["checks"]}
+    assert checks["상세 항목 수"]["ok"] is True, checks["상세 항목 수"]["detail"]
+    assert result["ok"] is True
+
+
 def test_verify_skips_detail_count_when_clear_unused_slots_is_false(tmp_path: Path):
     """회귀 3: clear_unused_slots가 꺼지면 안 쓰는 슬롯은 템플릿의 예시 텍스트
     ('예시 설명 N')를 그대로 유지한다. 상세 항목 수 검사가 옵션을 모르면 그
