@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from build import build, chunk_details, page_title
+from build import main as build_cli
 from common import Warnings, write_json
 from fixtures import make_png, make_template_pptx
 from pptx import Presentation
@@ -555,7 +556,9 @@ def test_plan_pages_splits_details_by_badge_count(tmp_path: Path):
 def test_plan_pages_repeats_piece_when_details_exceed_slots(tmp_path: Path):
     """한 조각의 상세가 슬롯을 넘으면 같은 조각을 여러 장에 싣는다."""
     from build import plan_pages
-    ys = list(range(60, 290, 30))       # 첫 조각에 뱃지를 몰아 넣는다
+    # 뱃지 사이 틈이 여백 띠로 잡히지 않을 만큼 촘촘히 찍어, 이 구간이 통째로
+    # 한 조각에 들어가게 만든다. 사이에서 잘리면 슬롯을 넘지 않아 반복이 안 난다.
+    ys = list(range(60, 270, 28))
     img = _tall_png(tmp_path / "images" / "S.png", ys)
     scr = {"id": "S", "name": "화면", "images": ["images/S.png"],
            "fields": {}, "details": _details(len(ys))}
@@ -605,6 +608,42 @@ def test_plan_pages_leaves_short_image_alone(tmp_path: Path):
 
     assert len(pages) == 1
     assert pages[0][1] is None
+
+
+def test_build_clone_mode_splits_tall_image(tmp_path: Path):
+    """clone 모드도 긴 스크린샷을 나눈다 — 이미지 자리는 앵커 도형이 알려 준다.
+
+    상세는 슬롯(20)에 다 들어가므로 장이 늘어난 이유는 이미지 분할뿐이다.
+    """
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    _tall_png(tmp_path / "images" / "SCR001.png", [100, 400, 700, 900, 1100])
+    out = tmp_path / "out.pptx"
+
+    report = build(_screens(5, "images/SCR001.png"), _mapping(tpl), tmp_path,
+                   out, Warnings())
+
+    assert report["slides"] > 1, "긴 이미지가 조각으로 나뉘어야 한다"
+    prs = Presentation(str(out))
+    assert all(len([s for s in sl.shapes if s.shape_type == 13]) == 1
+               for sl in prs.slides), "장마다 조각이 한 장씩 놓여야 한다"
+
+
+def test_build_clone_mode_without_image_anchor_skips_split(tmp_path: Path):
+    """앵커 도형을 못 찾으면 분할 없이 한 장으로 끝낸다.
+
+    앵커에서 자리를 읽는 코드가 None을 방어하지 않으면 여기서 AttributeError가
+    나고, 그 계산은 화면 루프 밖이라 화면 단위 격리에도 걸리지 않는다.
+    """
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    _tall_png(tmp_path / "images" / "SCR001.png", [100, 400, 700, 900, 1100])
+    mapping = _mapping(tpl)
+    mapping["template"]["shapes"]["image"] = "없는 그림"
+    out = tmp_path / "out.pptx"
+
+    report = build(_screens(5, "images/SCR001.png"), mapping, tmp_path, out,
+                   Warnings())
+
+    assert report["slides"] == 1
 
 
 # --- 상세표 높이 맞추기 -------------------------------------------------
@@ -755,3 +794,81 @@ def test_build_layout_mode_never_lets_tables_eat_the_image_slot(tmp_path: Path):
     area_top = 337940
     tbl = _tables_of(prs.slides[0])[0]
     assert tbl.top - area_top >= 914400
+
+
+def _cli_args(tmp_path: Path) -> list[str]:
+    """--out-file 없이 build.py를 부를 CLI 인자. screens.json의 meta.source는 s.xlsx다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    out_dir = tmp_path / "output"
+    write_json(out_dir / "screens.json", _screens(3))
+    write_json(out_dir / "mapping.json", _mapping(tpl))
+    return ["--screens", str(out_dir / "screens.json"),
+            "--mapping", str(out_dir / "mapping.json"),
+            "--output", str(out_dir)]
+
+
+def _work_cli_args(tmp_path: Path) -> list[str]:
+    """중간 산출물이 .work/에 있는 새 구조. build.py는 --output만 받는다."""
+    tpl = make_template_pptx(tmp_path / "t.pptx")
+    out_dir = tmp_path / "output"
+    write_json(out_dir / ".work" / "screens.json", _screens(3))
+    write_json(out_dir / ".work" / "mapping.json", _mapping(tpl))
+    return ["--output", str(out_dir)]
+
+
+def test_cli_reads_work_dir_without_path_arguments(tmp_path: Path):
+    assert build_cli(_work_cli_args(tmp_path)) == 0
+    assert (tmp_path / "output" / "s.pptx").exists()
+
+
+def test_cli_leaves_only_pptx_in_output_dir(tmp_path: Path):
+    """결과물 폴더에 보이는 건 pptx뿐이다."""
+    assert build_cli(_work_cli_args(tmp_path)) == 0
+
+    out_dir = tmp_path / "output"
+    assert sorted(p.name for p in out_dir.iterdir()) == [".work", "s.pptx"]
+    assert not (out_dir / ".work" / "s.pptx").exists()
+
+
+def test_cli_migrates_legacy_files_then_builds(tmp_path: Path):
+    """구버전 폴더를 그대로 줘도 .work/로 올린 뒤 이어서 만든다."""
+    args = _cli_args(tmp_path)[-2:]        # --output <디렉토리>만 남긴다
+    assert args[0] == "--output"
+
+    assert build_cli(args) == 0
+
+    out_dir = tmp_path / "output"
+    assert (out_dir / ".work" / "mapping.json").exists()
+    assert (out_dir / ".work" / "screens.json").exists()
+    assert (out_dir / "s.pptx").exists()
+
+
+def test_cli_names_output_from_source_excel(tmp_path: Path):
+    args = _cli_args(tmp_path)
+    assert build_cli(args) == 0
+    assert (tmp_path / "output" / "s.pptx").exists()
+
+
+def test_cli_numbers_instead_of_overwriting(tmp_path: Path):
+    """재실행이 직전 산출물을 덮어쓰면 결과를 비교할 수단이 없어진다."""
+    args = _cli_args(tmp_path)
+    assert build_cli(args) == 0
+    assert build_cli(args) == 0
+    assert build_cli(args) == 0
+
+    out_dir = tmp_path / "output"
+    assert sorted(p.name for p in out_dir.glob("s*.pptx")) == [
+        "s.pptx", "s2.pptx", "s3.pptx",
+    ]
+
+
+def test_cli_out_file_is_taken_as_is(tmp_path: Path):
+    """경로를 직접 지정했으면 번호를 붙이지 않는다 — 덮어쓰기가 의도한 동작이다."""
+    target = tmp_path / "납품용.pptx"
+    args = _cli_args(tmp_path) + ["--out-file", str(target)]
+    assert build_cli(args) == 0
+    assert build_cli(args) == 0
+
+    assert target.exists()
+    assert not (tmp_path / "납품용2.pptx").exists()
+    assert not (tmp_path / "output" / "s.pptx").exists()

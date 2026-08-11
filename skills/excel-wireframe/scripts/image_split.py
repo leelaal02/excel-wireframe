@@ -4,8 +4,10 @@
 세 가지를 지킨다.
 
 1. **의미가 끊기지 않게 자른다.** 일정 높이로 기계적으로 자르지 않고, 가로로
-   길게 이어진 여백 띠(섹션 경계)를 찾아 거기서 자른다. 목표 높이는 상한이
+   이어진 여백 띠(섹션 경계)를 찾아 거기서 자른다. 목표 높이는 상한이
    아니라 참고값이다 — 섹션이 끊기느니 조각이 길어져 조금 축소되는 편이 낫다.
+   섹션 헤더 아래 틈에서는 자르지 않는다. 거기서 자르면 제목만 앞 장에 남고
+   내용이 다음 장으로 넘어간다.
 2. **상세를 구간에 맞춘다.** 스크린샷에는 상세 번호에 대응하는 SoM 뱃지(노란 원)가
    찍혀 있다. 각 조각에 뱃지가 몇 개 들어가는지 세어 그 수만큼 상세를 배분한다.
    뱃지 안의 숫자를 읽지 않는 이유는 순서 추정이 불안정하기 때문이다 — 같은 줄에
@@ -30,12 +32,13 @@ BADGE_ASPECT = (0.6, 1.6)  # 원이므로 가로세로가 비슷
 # --- 여백 띠 검출 ---
 QUIET_STD = 12             # 행의 색 분산이 이보다 낮으면 조용한 행
 QUIET_MEAN = 200           # 그리고 밝아야 한다 (어두운 단색 띠는 여백이 아니다)
-QUIET_MIN_RUN = 6          # 이만큼 연속돼야 띠로 본다
+QUIET_MIN_RUN = 5          # 이만큼 연속돼야 띠로 본다
 NAV_SKIP_RATIO = 0.12      # 좌측 네비게이션은 세로로 계속 이어져 여백 판단을 방해한다
 
 # --- 분할 계획 ---
 CUT_MIN_RATIO = 0.5        # 목표 높이의 이 배수부터 자를 곳을 찾는다
 CUT_MAX_RATIO = 1.5        # 이 배수를 넘으면 여백이 없어도 자른다
+HEADER_MAX_PX = 40         # 띠와 띠 사이가 이보다 얇으면 섹션 헤더 한 줄로 본다
 
 
 # detect_badges() 함수: 화면에 있는 SoM 노란 번호를 모두 찾는 것
@@ -109,6 +112,21 @@ def find_quiet_bands(img: Image.Image) -> list[tuple[int, int]]:
 
 
 
+def leads_section(band, bands) -> bool:
+    """이 띠 바로 위에 섹션 헤더 한 줄만 얹혀 있는지 본다.
+
+    화면의 섹션 헤더는 위아래로 여백을 거느린다. 아래쪽 여백에서 자르면 헤더
+    글자만 앞 조각 끝에 남고 그 헤더가 이끄는 표와 입력란은 다음 조각으로
+    넘어간다 — 읽는 사람에게는 제목과 내용이 갈라져 보인다. 위 띠와의 간격이
+    한 줄 높이밖에 안 되면 그 사이는 헤더이므로, 이 띠는 자를 곳이 아니다.
+    """
+    start = band[0]
+    above = [end for _s, end in bands if end < start]
+    if not above:
+        return False
+    return start - max(above) - 1 <= HEADER_MAX_PX
+
+
 def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int, int]]:
 # height   : 원본 이미지의 높이(px)
 # target_h : PPT 이미지 영역에 맞춘 목표 분할 높이(px)
@@ -117,8 +135,9 @@ def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int,
     """이미지를 (시작y, 끝y, 뱃지수) 조각으로 나눈다.
 
     자를 곳은 목표 높이의 CUT_MIN_RATIO~CUT_MAX_RATIO 범위에서 고른다. 그 안에
-    여백 띠가 있으면 가장 두꺼운 것을 쓰고, 없으면 뱃지를 관통하지 않는 지점을,
-    그것도 없으면 범위 끝에서 자른다.
+    여백 띠가 있으면 섹션 헤더를 고아로 남기지 않는 것들 중 목표 높이에 가장
+    가까운 것을 쓰고, 없으면 뱃지를 관통하지 않는 지점을, 그것도 없으면 범위
+    끝에서 자른다.
     """
     if target_h <= 0:
         return [(0, height - 1, len(badges))] # 분할하지 않고 이미지 전체를 하나의 조각으로 반환
@@ -133,8 +152,16 @@ def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int,
             lo = top + int(target_h * CUT_MIN_RATIO)
             hi = min(height - 1, top + int(target_h * CUT_MAX_RATIO))
             inside = [(s, e) for s, e in bands if lo <= s and e <= hi]
-            if inside:
-                s, e = max(inside, key=lambda b: b[1] - b[0])
+            # 헤더를 고아로 만드는 띠는 뺀다. 다만 그것뿐이면 안 자를 수는
+            # 없으니 그대로 쓴다 — 조각이 무한정 길어지는 편이 더 나쁘다.
+            usable = [b for b in inside if not leads_section(b, bands)] or inside
+            if usable:
+                # 두께가 아니라 목표 높이와의 거리로 고른다. 띠 두께는 섹션이
+                # 얼마나 크게 갈리는지와 상관이 없고(5px과 6px이 갈린다),
+                # 두꺼운 쪽을 우선하면 조각이 목표보다 훨씬 짧아져 이미지만
+                # 납작해진 채 슬라이드의 자리가 남는다.
+                s, e = min(usable,
+                           key=lambda b: abs((b[0] + b[1]) // 2 - (top + target_h)))
                 bottom = (s + e) // 2
             else:
                 free = [y for y in range(hi, lo - 1, -1)
