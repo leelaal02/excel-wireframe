@@ -11,7 +11,7 @@ from datetime import date
 from pathlib import Path
 
 from build import build
-from common import Warnings, read_json, write_json
+from common import Warnings, read_json, resolve_output_path, write_json
 from extract import main as extract_main
 from fixtures import make_sheet_per_screen_xlsx, make_template_pptx
 from openpyxl import load_workbook
@@ -69,20 +69,20 @@ def test_extract_then_build_carries_cover_meta_into_shapes(tmp_path: Path):
     wb.save(xlsx)
 
     tpl = make_template_pptx(tmp_path / "t.pptx")
-    work = tmp_path / "work"
-    mapping_path = work / "mapping.json"
+    out_dir = tmp_path / "output"
+    mapping_path = out_dir / ".work" / "mapping.json"
     write_json(mapping_path, _mapping(tpl))
 
-    code = extract_main(["--excel", str(xlsx), "--mapping", str(mapping_path),
-                          "--work", str(work)])
+    code = extract_main(["--excel", str(xlsx), "--output", str(out_dir)])
     assert code == 0
 
-    screens_data = read_json(work / "screens.json")
+    screens_data = read_json(out_dir / ".work" / "screens.json")
     assert screens_data["meta"]["작성일"] == "2026-06-11"
     assert screens_data["meta"]["프로젝트명"] == "통합관리시스템"
 
-    out = work / "output" / "화면설계서.pptx"
-    report = build(screens_data, read_json(mapping_path), work, out, Warnings())
+    out = resolve_output_path(out_dir, screens_data["meta"]["source"])
+    report = build(screens_data, read_json(mapping_path), out_dir / ".work",
+                   out, Warnings())
     assert out.exists()
     assert report["failed"] == []
 
@@ -110,18 +110,17 @@ def test_extract_then_build_keeps_cover_date_when_date_field_disabled(
     wb.save(xlsx)
 
     tpl = make_template_pptx(tmp_path / "t.pptx")
-    work = tmp_path / "work"
-    mapping_path = work / "mapping.json"
+    out_dir = tmp_path / "output"
+    mapping_path = out_dir / ".work" / "mapping.json"
     mapping = _mapping(tpl)
     mapping["options"]["date_field"] = None
     write_json(mapping_path, mapping)
 
-    assert extract_main(["--excel", str(xlsx), "--mapping", str(mapping_path),
-                         "--work", str(work)]) == 0
+    assert extract_main(["--excel", str(xlsx), "--output", str(out_dir)]) == 0
 
-    screens_data = read_json(work / "screens.json")
-    out = work / "output" / "화면설계서.pptx"
-    build(screens_data, read_json(mapping_path), work, out, Warnings())
+    screens_data = read_json(out_dir / ".work" / "screens.json")
+    out = resolve_output_path(out_dir, screens_data["meta"]["source"])
+    build(screens_data, read_json(mapping_path), out_dir / ".work", out, Warnings())
 
     slide = Presentation(str(out)).slides[0]
     date_shape = next(s for s in slide.shapes if s.name == "작성일")

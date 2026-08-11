@@ -12,7 +12,15 @@ import argparse
 import sys
 from pathlib import Path
 
-from common import Warnings, read_json, setup_stdio, write_json
+from common import (
+    Warnings,
+    migrate_legacy_work,
+    migration_notice,
+    read_json,
+    setup_stdio,
+    work_dir,
+    write_json,
+)
 from openpyxl import load_workbook
 from xlsx_images import extract_images
 from xlsx_meta import read_cover_meta
@@ -23,13 +31,21 @@ def main(argv: list[str] | None = None) -> int:
     setup_stdio()
     ap = argparse.ArgumentParser(description="Excel에서 screens.json과 이미지를 추출한다")
     ap.add_argument("--excel", required=True)
-    ap.add_argument("--mapping", required=True)
-    ap.add_argument("--work", required=True)
+    ap.add_argument("--mapping", default=None,
+                    help="생략하면 결과물 폴더의 .work/mapping.json을 읽는다")
+    ap.add_argument("--output", required=True,
+                    help="결과물 폴더. screens.json과 images/는 그 안 .work/에 생긴다")
     args = ap.parse_args(argv)
 
     excel_path = Path(args.excel)
-    work = Path(args.work)
-    mapping = read_json(Path(args.mapping))
+    output_dir = Path(args.output)
+    mapping_arg = Path(args.mapping) if args.mapping else None
+    notice = migration_notice(
+        migrate_legacy_work(output_dir, keep=[mapping_arg] if mapping_arg else None))
+    if notice:
+        print(notice)
+    out_dir = work_dir(output_dir)
+    mapping = read_json(mapping_arg if mapping_arg else out_dir / "mapping.json")
     warns = Warnings()
 
     wb = load_workbook(excel_path, data_only=True)
@@ -43,7 +59,7 @@ def main(argv: list[str] | None = None) -> int:
             # 생성 전체를 무너뜨리면 안 된다 — 표지 없음과 같은 취급으로
             # 내려가 아래 안내 문구가 그대로 출력되게 한다.
             cover_meta = {}
-        extract_images(excel_path, wb, mapping, screens, work, warns)
+        extract_images(excel_path, wb, mapping, screens, out_dir, warns)
     finally:
         wb.close()
 
@@ -60,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
         "screens": screens,
     }
 
-    target = work / "screens.json"
+    target = out_dir / "screens.json"
     write_json(target, payload)
     print("screens.json 저장: %s" % target)
 

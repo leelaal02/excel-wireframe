@@ -57,15 +57,14 @@ def _run(script: str, *args: str):
 
 
 def test_sample_end_to_end(tmp_path: Path):
-    work = tmp_path / "work"
-    mapping_path = work / "mapping.json"
-    write_json(mapping_path, MAPPING)
+    out_dir = tmp_path / "output"
+    write_json(out_dir / ".work" / "mapping.json", MAPPING)
 
-    r = _run("extract.py", "--excel", str(SAMPLE_XLSX),
-             "--mapping", str(mapping_path), "--work", str(work))
+    # 스킬이 실제로 돌리는 명령 그대로다 — 경로는 스크립트가 유도한다.
+    r = _run("extract.py", "--excel", str(SAMPLE_XLSX), "--output", str(out_dir))
     assert r.returncode == 0, r.stderr
 
-    screens = read_json(work / "screens.json")
+    screens = read_json(out_dir / ".work" / "screens.json")
     assert len(screens["screens"]) == 1
     scr = screens["screens"][0]
     assert scr["id"] == "B2BISMT1001"
@@ -76,11 +75,22 @@ def test_sample_end_to_end(tmp_path: Path):
     # 사람이 수동으로만 확인해 오던 것을 코드화한다.
     assert screens["meta"]["작성일"] == "2026-06-11"
 
-    out = work / "output" / "화면설계서.pptx"
-    r = _run("build.py", "--screens", str(work / "screens.json"),
-             "--mapping", str(mapping_path), "--work", str(work), "--out", str(out))
+    # --out-file 없이 돌린다. 이름은 build.py가 원본 Excel 파일명에서 정한다.
+    out = out_dir / (SAMPLE_XLSX.stem + ".pptx")
+    r = _run("build.py", "--output", str(out_dir))
     assert r.returncode == 0, r.stderr
     assert out.exists()
+
+    # 같은 명령을 다시 돌리면 덮어쓰지 않고 번호를 붙인다.
+    r = _run("build.py", "--output", str(out_dir))
+    assert r.returncode == 0, r.stderr
+    assert (out_dir / (SAMPLE_XLSX.stem + "2.pptx")).exists()
+    assert out.exists()
+
+    # 결과물 폴더에서 눈에 보이는 건 pptx뿐이다.
+    assert sorted(p.name for p in out_dir.iterdir()) == [
+        ".work", SAMPLE_XLSX.stem + ".pptx", SAMPLE_XLSX.stem + "2.pptx",
+    ]
 
     prs = Presentation(str(out))
     assert len(prs.slides) == 1

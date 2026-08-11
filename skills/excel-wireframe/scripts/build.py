@@ -13,7 +13,17 @@ import sys
 from datetime import date
 from pathlib import Path
 
-from common import Warnings, read_json, resolve_template_path, setup_stdio
+from common import (
+    Warnings,
+    migrate_legacy_work,
+    migration_notice,
+    output_stem,
+    read_json,
+    resolve_output_path,
+    resolve_template_path,
+    setup_stdio,
+    work_dir,
+)
 from pptx import Presentation
 from image_split import split_for_box
 from slide_clone import clone_slide
@@ -301,6 +311,8 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
 
 def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
           warns: Warnings) -> dict:
+    """`work_dir`은 이미지와 템플릿을 푸는 기준이다. 결과물 경로는 `out_path`가
+    따로 받는다 — 결과물 폴더와 작업 폴더는 다른 곳이다."""
     tpl = mapping["template"]
     template_path = resolve_template_path(tpl, work_dir)
 
@@ -351,8 +363,17 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
                 "template.layout에 레이아웃 이름을 지정하거나, 예시 슬라이드가 "
                 "있는 템플릿을 --template으로 지정하세요."
             )
-        image_box_for_split = None
         src = prs.slides[int(source_slide)]
+        # 이미지 자리는 layout 모드처럼 계산할 수 없다. 대신 예시 슬라이드의 앵커
+        # 도형이 그 자리다 — place_image가 이미지를 앉힐 때 보는 것과 같은 값을
+        # 분할 계산도 봐야 목표 높이와 실제 배치가 어긋나지 않는다. 소스는 한 장뿐
+        # 이므로 여기서 한 번만 찾는다. 앵커가 없으면 분할하지 않는다(경고는
+        # _fill_page가 화면마다 shape-not-found로 남기므로 여기서 겹쳐 내지 않는다).
+        anchor = find_shape(src, tpl.get("shapes", {}).get("image") or "")
+        image_box_for_split = None
+        if anchor is not None and anchor.width and anchor.height:
+            image_box_for_split = (anchor.left, anchor.top,
+                                   anchor.width, anchor.height)
         slot_count = count_slots(
             collect_tables(src, tpl.get("shapes", {}).get("detail_tables"), warns)
         )
@@ -436,17 +457,39 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
 def main(argv: list[str] | None = None) -> int:
     setup_stdio()
     ap = argparse.ArgumentParser(description="screens.json으로 화면설계서 PPT를 만든다")
-    ap.add_argument("--screens", required=True)
-    ap.add_argument("--mapping", required=True)
-    ap.add_argument("--work", required=True)
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--screens", default=None,
+                    help="생략하면 결과물 폴더의 .work/screens.json을 읽는다")
+    ap.add_argument("--mapping", default=None,
+                    help="생략하면 결과물 폴더의 .work/mapping.json을 읽는다")
+    ap.add_argument("--output", required=True,
+                    help="결과물 폴더. pptx가 여기 저장되고 작업 파일은 .work/에 있다")
+    ap.add_argument("--out-file", default=None,
+                    help="결과물 경로를 직접 지정한다. 생략하면 원본 Excel 파일명을 쓴다")
     args = ap.parse_args(argv)
 
-    screens_data = read_json(Path(args.screens))
-    mapping = read_json(Path(args.mapping))
-    warns = Warnings()
+    output_dir = Path(args.output)
+    given = [Path(p) for p in (args.screens, args.mapping) if p]
+    notice = migration_notice(migrate_legacy_work(output_dir, keep=given))
+    if notice:
+        print(notice)
+    work = work_dir(output_dir)
 
-    report = build(screens_data, mapping, Path(args.work), Path(args.out), warns)
+    screens_data = read_json(Path(args.screens) if args.screens
+                             else work / "screens.json")
+    mapping = read_json(Path(args.mapping) if args.mapping
+                        else work / "mapping.json")
+    warns = Warnings()
+    source = screens_data.get("meta", {}).get("source", "")
+    if args.out_file:
+        # 명시 지정은 그대로 쓴다. 사용자가 파일명을 직접 정했으면 덮어쓰기가
+        # 의도한 동작이고, 코드가 이를 뒤집으면 결과를 예측할 수 없다.
+        out_path = Path(args.out_file)
+        numbered = False
+    else:
+        out_path = resolve_output_path(output_dir, source)
+        numbered = out_path.stem != output_stem(source)
+
+    report = build(screens_data, mapping, work, out_path, warns)
 
     print("슬라이드 %d장 생성 (화면 %d개)" % (report["slides"], report["screens"]))
     if report["split"]:
@@ -455,11 +498,16 @@ def main(argv: list[str] | None = None) -> int:
         print("실패한 화면: %s" % ", ".join(report["failed"]))
     if len(warns):
         print(warns.format())
-    result = verify_output(Path(args.out), screens_data, mapping, report["slides"], Path(args.work))
+    result = verify_output(out_path, screens_data, mapping, report["slides"], work)
     print("검증: %s" % ("통과" if result["ok"] else "실패"))
     for c in result["checks"]:
         print("  [%s] %s — %s" % ("O" if c["ok"] else "X", c["name"], c["detail"]))
-    print("저장: %s" % args.out)
+    # 번호가 붙었으면 알린다. 조용히 다른 이름으로 저장하면 사용자가 옛 파일을
+    # 열어 보고 반영이 안 됐다고 오해한다.
+    if numbered:
+        print("저장: %s (같은 이름이 있어 번호를 붙였습니다)" % out_path)
+    else:
+        print("저장: %s" % out_path)
     return 0
 
 

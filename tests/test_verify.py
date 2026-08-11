@@ -104,16 +104,16 @@ def test_verify_skips_detail_count_when_clear_unused_slots_is_false(tmp_path: Pa
     assert "clear_unused_slots" in checks["상세 항목 수"]["detail"]
 
 
-def test_verify_passes_for_workdir_relative_template_path(tmp_path: Path):
-    """블로킹 발견 1: build()는 template.file이 상대경로면 work_dir 기준으로
+def test_verify_passes_for_outputdir_relative_template_path(tmp_path: Path):
+    """블로킹 발견 1: build()는 template.file이 상대경로면 output_dir 기준으로
     다시 찾지만, verify_output은 예전엔 그렇게 하지 않아 정상적으로 만들어진
     결과물에서도 '템플릿 파일을 찾을 수 없어 비교 불가'로 실패 보고를 했다.
-    mapping-schema.md 예시 그대로(work 디렉토리 상대경로)를 재현한다."""
+    mapping-schema.md 예시 그대로(output 디렉토리 상대경로)를 재현한다."""
     make_template_pptx(tmp_path / "t.pptx")  # 절대경로로 실제 생성
     make_png(tmp_path / "images" / "SCR001.png")
     data = _data("images/SCR001.png")
     mapping = _mapping(tmp_path / "t.pptx")
-    mapping["template"]["file"] = "t.pptx"  # work_dir 기준 상대경로로 바꿔 둔다
+    mapping["template"]["file"] = "t.pptx"  # output_dir 기준 상대경로로 바꿔 둔다
     out = tmp_path / "out.pptx"
     report = build(data, mapping, tmp_path, out, Warnings())
 

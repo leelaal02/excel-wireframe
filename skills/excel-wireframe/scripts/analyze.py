@@ -13,7 +13,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from common import setup_stdio, write_json
+from common import (
+    migrate_legacy_work,
+    migration_notice,
+    setup_stdio,
+    work_dir,
+    write_json,
+)
 from default_template import build_default_template, default_template_mapping
 from pptx_scan import scan_layouts, scan_presentation, suggest_content_area, suggest_mode
 from user_default import load_user_default, user_default_mapping
@@ -56,10 +62,25 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--excel", required=True)
     ap.add_argument("--template", default=None,
                     help="생략하면 기본 템플릿을 만들어 사용한다")
-    ap.add_argument("--out", required=True)
+    ap.add_argument("--output", default=None,
+                    help="결과물 폴더. 리포트는 그 안 .work/에 쓴다")
+    ap.add_argument("--out", default=None,
+                    help="리포트 경로를 직접 지정한다. --output보다 우선한다")
     args = ap.parse_args(argv)
 
-    out_path = Path(args.out)
+    if not args.out and not args.output:
+        # 어디에 쓸지 모르는 채로 스캔을 시작하지 않는다. Excel과 템플릿을 다 읽고
+        # 나서 저장할 곳이 없다고 죽으면 시간만 버린다.
+        ap.error("--output 또는 --out 중 하나가 필요합니다")
+
+    if args.out:
+        out_path = Path(args.out)
+    else:
+        output_dir = Path(args.output)
+        notice = migration_notice(migrate_legacy_work(output_dir))
+        if notice:
+            print(notice)
+        out_path = work_dir(output_dir) / "structure-report.json"
     template_path, generated, user_cfg = resolve_template(args.template, out_path)
 
     report = build_report(Path(args.excel), template_path)
@@ -97,7 +118,7 @@ def main(argv: list[str] | None = None) -> int:
           % (len(report["template"]["slides"]), w, h))
     print("제안 모드: %s (%s)"
           % (report["suggestion"]["mode"], report["suggestion"]["reason"]))
-    print("리포트 저장: %s" % args.out)
+    print("리포트 저장: %s" % out_path)
     return 0
 
 

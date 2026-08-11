@@ -26,16 +26,36 @@ Claude에게 Excel 파일을 주면서 "화면설계서 PPT 만들어줘"라고 
 S=~/.claude/skills/excel-wireframe/scripts
 
 # 1. 구조 분석 (--template 생략 시 기본 템플릿 생성)
-python $S/analyze.py --excel 입력.xlsx --template 템플릿.pptx --out work/structure-report.json
+python $S/analyze.py --excel 입력.xlsx --template 템플릿.pptx --output output
 
-# 2. 리포트를 읽고 work/mapping.json 작성 — 사람이 판단하는 단계
+# 2. 리포트를 읽고 output/.work/mapping.json 작성 — 사람이 판단하는 단계
 
 # 3. 추출
-python $S/extract.py --excel 입력.xlsx --mapping work/mapping.json --work work
+python $S/extract.py --excel 입력.xlsx --output output
 
-# 4. 생성
-python $S/build.py --screens work/screens.json --mapping work/mapping.json --work work --out 결과.pptx
+# 4. 생성 (이름은 원본 Excel 파일명, 같은 이름이 있으면 뒤에 2, 3이 붙는다)
+python $S/build.py --output output
+#   → output/입력.pptx
+
+# 이름을 직접 정하려면 (이때는 번호를 붙이지 않고 덮어쓴다)
+python $S/build.py --output output --out-file 납품용.pptx
 ```
+
+`--output`은 결과물 폴더다. 여기엔 pptx만 놓인다. 중간 산출물
+(`structure-report.json`, `mapping.json`, `screens.json`, `default-template.pptx`,
+`images/`)은 그 안의 `.work/`에 모인다 — 폴더째 지우면 이 Excel의 산출물이 전부
+사라진다.
+
+```
+output/
+├─ 입력.pptx          ← 결과물
+└─ .work/             ← 중간 산출물
+```
+
+경로는 스크립트가 정한다. 다른 위치의 매핑이나 screens를 쓰려면 `--mapping`,
+`--screens`로 짚어 줄 수 있고, 그때는 그 경로를 그대로 쓴다. 예전 구조(`output/`
+루트에 중간 산출물이 있던 폴더)로 돌리면 첫 실행 때 `.work/`로 옮기고 이어서
+진행한다.
 
 ## 설계
 

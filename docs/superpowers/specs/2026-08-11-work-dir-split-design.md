@@ -59,7 +59,7 @@ output/
 |---|---|---|
 | `build()` | `output_dir` | `work_dir` |
 | `plan_pages()` | `output_dir` | `work_dir` |
-| `fill_slide()` | `output_dir` | `work_dir` |
+| `_fill_page()` | `output_dir` | `work_dir` |
 | `verify_output()` | `output_dir` | `work_dir` |
 | `resolve_template_path()` | `output_dir` | `work_dir` |
 
@@ -70,7 +70,7 @@ output/
 `screens.json`에 적히는 이미지 경로 표기(`images/xxx.png`)는 그대로 둔다. 상대
 경로의 기준 폴더만 바뀌므로 파일 내용은 손대지 않는다.
 
-### 3. `common.py`에 두 함수를 추가한다
+### 3. `common.py`에 세 함수를 추가한다
 
 ```python
 def work_dir(output_dir: Path) -> Path:
@@ -80,11 +80,16 @@ def work_dir(output_dir: Path) -> Path:
     """
 
 
-def migrate_legacy_work(output_dir: Path) -> list[str]:
+def migrate_legacy_work(output_dir: Path,
+                        keep: list[Path] | None = None) -> list[str]:
     """output/ 루트에 남은 구버전 중간 산출물을 .work/로 옮긴다.
 
     옮긴 이름 목록을 돌려준다. 옮길 게 없으면 빈 리스트.
     """
+
+
+def migration_notice(moved: list[str]) -> str:
+    """옮긴 결과를 알릴 한 줄. 옮긴 게 없으면 빈 문자열."""
 ```
 
 `work_dir`는 `resolve_output_path` 옆에 둔다. 둘 다 순수 함수라 파일시스템만
@@ -104,12 +109,21 @@ pptx이고, 사용자가 결과물 이름을 직접 지어 놨을 수도 있다.
 같은 이름이 `.work/`에 이미 있으면 옮기지 않고 루트 쪽을 그대로 둔다. `.work/`
 쪽이 새 경로에서 만들어진 최신 파일이므로 구버전이 덮어써서는 안 된다.
 
+`keep`은 CLI가 `--mapping`이나 `--screens`로 직접 가리킨 경로다. 그 파일을
+옮기면 **바로 그 실행이 자기가 읽을 파일을 잃는다** — `--mapping
+output/mapping.json`을 준 실행에서 마이그레이션이 먼저 돌면 `read_json`이
+없는 파일을 연다. 사용자가 짚은 경로는 건드리지 않는다.
+
 세 CLI 진입점이 작업 폴더를 얻을 때 한 번씩 호출한다. 옮긴 게 있으면 한 줄
 출력한다.
 
 ```
-기존 작업 파일 3개를 .work/로 옮겼습니다: mapping.json, screens.json, images/
+기존 작업 파일 3개를 .work/로 옮겼습니다: mapping.json, screens.json, images
 ```
+
+문구는 `migration_notice`가 만든다 — 세 CLI가 같은 말을 하게 하려면 포맷이 한
+곳에 있어야 한다. `Warnings.format`과 같은 규약으로, 옮긴 게 없으면 빈 문자열을
+돌려주고 호출부는 아무것도 찍지 않는다.
 
 조용히 파일을 움직이면 사용자가 사라졌다고 오해한다. 경고 코드는 늘리지
 않는다 — 마이그레이션은 정상 동작이다. **경고 코드는 아홉 개를 유지한다.**

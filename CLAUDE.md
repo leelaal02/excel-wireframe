@@ -29,6 +29,15 @@ Excel 화면설계서 → PPT 생성 Claude Skill을 만드는 저장소다.
 - 글자가 몇 줄이 되고 행이 얼마나 높아야 하는지는 `text_metrics`로만 센다.
   폭·여백 기준은 `slide_layout.detail_text_width`가 단일 출처다 — 계산과 산출물이
   다른 식을 쓰면 표가 자리에 안 맞는다.
+- 결과물 pptx 이름은 `common.resolve_output_path`가 정한다 — 원본 Excel 파일명을 쓰고
+  같은 이름이 있으면 뒤에 `2`, `3`을 붙인다. 스킬 지시문이나 호출부에 파일명을
+  하드코딩하지 않는다. 재실행이 직전 산출물을 덮어쓰면 결과를 비교할 수 없다.
+  `--out-file`은 사용자가 이름을 직접 지정했을 때만 쓴다.
+- 결과물 폴더에는 pptx만 둔다. 중간 산출물은 그 안의 `.work/`에 모인다 —
+  경로는 `common.work_dir`이 유도하므로 호출부가 `.work`를 타이핑하지 않는다.
+  CLI 인자는 `--output`(결과물 폴더) 하나이고, `--mapping`·`--screens`는 다른
+  위치의 파일을 쓸 때만 붙이는 선택 인자다. 코드 안의 이름은 결과물 기준이면
+  `output_dir`, 중간 산출물 기준이면 `work_dir`로 가른다.
 - 경고 코드는 아홉 개뿐이다: `no-image`, `no-detail`, `text-overflow`, `shape-not-found`,
   `slide-split`, `slot-shortage`, `screen-failed`, `image-convert-failed`, `orphan-row`.
 

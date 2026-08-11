@@ -26,7 +26,7 @@ def test_build_report_joins_both_sides(tmp_path: Path):
 def test_main_writes_report_file(tmp_path: Path):
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
     pptx = make_template_pptx(tmp_path / "t.pptx")
-    out = tmp_path / "work" / "structure-report.json"
+    out = tmp_path / "output" / "structure-report.json"
     code = main(["--excel", str(xlsx), "--template", str(pptx), "--out", str(out)])
     assert code == 0
     data = read_json(out)
@@ -34,21 +34,80 @@ def test_main_writes_report_file(tmp_path: Path):
     assert data["template_generated"] is False
 
 
+def test_main_puts_report_in_work_dir(tmp_path: Path):
+    """--output만 주면 리포트 경로는 코드가 정한다."""
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    pptx = make_template_pptx(tmp_path / "t.pptx")
+    out_dir = tmp_path / "output"
+
+    code = main(["--excel", str(xlsx), "--template", str(pptx),
+                 "--output", str(out_dir)])
+
+    assert code == 0
+    assert read_json(out_dir / ".work" / "structure-report.json")["template_generated"] is False
+    assert not (out_dir / "structure-report.json").exists()
+
+
+def test_main_puts_default_template_in_work_dir(tmp_path: Path):
+    """만들어 쓰는 기본 템플릿도 작업 파일이다. 결과물 폴더에 pptx를 늘리지 않는다."""
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    out_dir = tmp_path / "output"
+
+    assert main(["--excel", str(xlsx), "--output", str(out_dir)]) == 0
+
+    assert (out_dir / ".work" / "default-template.pptx").exists()
+    assert list(out_dir.glob("*.pptx")) == []
+
+
+def test_main_requires_output_or_out(tmp_path: Path):
+    """어디에 쓸지 모르는 채로 스캔을 시작하지 않는다."""
+    import pytest
+
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    with pytest.raises(SystemExit):
+        main(["--excel", str(xlsx)])
+
+
+def test_main_out_wins_over_output(tmp_path: Path):
+    """명시 지정이 유도된 경로를 이긴다 — build.py의 --out-file과 같은 규칙이다."""
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    out_dir = tmp_path / "output"
+    target = tmp_path / "리포트.json"
+
+    assert main(["--excel", str(xlsx), "--output", str(out_dir),
+                 "--out", str(target)]) == 0
+
+    assert target.exists()
+    assert not (out_dir / ".work" / "structure-report.json").exists()
+
+
+def test_main_migrates_legacy_files(tmp_path: Path):
+    xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
+    out_dir = tmp_path / "output"
+    out_dir.mkdir()
+    (out_dir / "mapping.json").write_text("{}", encoding="utf-8")
+
+    assert main(["--excel", str(xlsx), "--output", str(out_dir)]) == 0
+
+    assert (out_dir / ".work" / "mapping.json").exists()
+    assert not (out_dir / "mapping.json").exists()
+
+
 def test_resolve_template_uses_given_path(tmp_path: Path):
     pptx = make_template_pptx(tmp_path / "t.pptx")
     path, generated, cfg = resolve_template(str(pptx),
-                                            tmp_path / "work" / "r.json")
+                                            tmp_path / "output" / "r.json")
     assert path == pptx
     assert generated is False
     assert cfg is None
 
 
 def test_resolve_template_generates_when_missing(tmp_path: Path):
-    out = tmp_path / "work" / "r.json"
+    out = tmp_path / "output" / "r.json"
     path, generated, cfg = resolve_template(None, out)
     assert generated is True
     assert cfg is None
-    assert path == tmp_path / "work" / "default-template.pptx"
+    assert path == tmp_path / "output" / "default-template.pptx"
     assert path.exists()
 
 
@@ -64,12 +123,12 @@ def test_resolve_template_prefers_user_default_over_generating(tmp_path: Path):
                {"template": "assets/t.pptx", "layout": "화면"})
 
     path, generated, cfg = resolve_template(
-        None, tmp_path / "work" / "r.json", skill_base=base)
+        None, tmp_path / "output" / "r.json", skill_base=base)
 
     assert path == tpl
     assert generated is False
     assert cfg["layout"] == "화면"
-    assert not (tmp_path / "work" / "default-template.pptx").exists()
+    assert not (tmp_path / "output" / "default-template.pptx").exists()
 
 
 def test_resolve_template_given_path_wins_over_user_default(tmp_path: Path):
@@ -85,7 +144,7 @@ def test_resolve_template_given_path_wins_over_user_default(tmp_path: Path):
     given = make_template_pptx(tmp_path / "given.pptx")
 
     path, generated, cfg = resolve_template(
-        str(given), tmp_path / "work" / "r.json", skill_base=base)
+        str(given), tmp_path / "output" / "r.json", skill_base=base)
 
     assert path == given
     assert cfg is None
@@ -100,13 +159,13 @@ def test_main_without_template_generates_one(tmp_path: Path):
     `suggest_mode`도 자연히 layout으로 판정한다. 둘의 결론이 같아졌지만
     파이프라인이 실제로 쓰는 값은 여전히 `suggested_template_mapping`이다."""
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
-    out = tmp_path / "work" / "structure-report.json"
+    out = tmp_path / "output" / "structure-report.json"
     code = main(["--excel", str(xlsx), "--out", str(out)])
     assert code == 0
 
     data = read_json(out)
     assert data["template_generated"] is True
-    assert (tmp_path / "work" / "default-template.pptx").exists()
+    assert (tmp_path / "output" / "default-template.pptx").exists()
     assert data["suggestion"]["mode"] == "layout"
 
     suggested = data["suggested_template_mapping"]
@@ -118,14 +177,14 @@ def test_main_without_template_generates_one(tmp_path: Path):
 def test_main_with_given_template_has_no_suggestion(tmp_path: Path):
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
     pptx = make_template_pptx(tmp_path / "t.pptx")
-    out = tmp_path / "work" / "structure-report.json"
+    out = tmp_path / "output" / "structure-report.json"
     main(["--excel", str(xlsx), "--template", str(pptx), "--out", str(out)])
     assert "suggested_template_mapping" not in read_json(out)
 
 
 def test_suggested_mapping_carries_meta_shapes(tmp_path: Path):
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
-    out = tmp_path / "work" / "structure-report.json"
+    out = tmp_path / "output" / "structure-report.json"
     main(["--excel", str(xlsx), "--out", str(out)])
     shapes = read_json(out)["suggested_template_mapping"]["shapes"]
     assert shapes["문서제목"] == "문서제목"
@@ -176,7 +235,7 @@ def test_suggested_mapping_builds_with_its_own_content_area(tmp_path: Path):
     from pptx import Presentation
 
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
-    out = tmp_path / "work" / "structure-report.json"
+    out = tmp_path / "output" / "structure-report.json"
     assert main(["--excel", str(xlsx), "--out", str(out)]) == 0
     tpl = read_json(out)["suggested_template_mapping"]
 

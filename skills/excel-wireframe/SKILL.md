@@ -21,7 +21,7 @@ Excel 화면설계서를 받아 화면 페이지 PPT를 생성한다. PPT 템플
 
 ### 0. 준비
 
-작업 디렉토리를 정한다(기본: 입력 Excel 옆의 `work/`). 의존성을 확인한다.
+결과물 폴더를 정한다(기본: 입력 Excel 옆의 `output/`). 의존성을 확인한다.
 
 ```bash
 python -c "import pptx, openpyxl, PIL"
@@ -29,12 +29,15 @@ python -c "import pptx, openpyxl, PIL"
 
 없으면 `python -m pip install python-pptx openpyxl Pillow`.
 
-`work/mapping.json`이 이미 있으면 1~2단계를 건너뛰고 3단계로 간다.
+**폴더에는 `--output`만 넘긴다.** 결과물 pptx는 그 폴더 바로 밑에 놓이고, 중간
+산출물은 스크립트가 그 안의 `.work/`에 모은다. 경로를 직접 타이핑하지 않는다.
+
+`output/.work/mapping.json`이 이미 있으면 1~2단계를 건너뛰고 3단계로 간다.
 
 ### 1. 구조 분석
 
 ```bash
-python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.pptx> --out work/structure-report.json
+python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.pptx> --output output
 ```
 
 **템플릿을 안 받았으면 `--template`을 생략한다.** 스킬 디렉토리에
@@ -44,7 +47,7 @@ python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.p
 쓰였는지 바로 보인다. 설정 형식은 `user-default.example.json`에 있다.
 
 설정이 없으면 기본 템플릿이
-`work/default-template.pptx`로 만들어진다 — 슬라이드 10.83 × 7.50in에 화면 페이지용
+`output/.work/default-template.pptx`로 만들어진다 — 슬라이드 10.83 × 7.50in에 화면 페이지용
 레이아웃(`화면`) 하나가 들어 있고, 상단 띠·구분선·하단 바 같은 껍데기는 그 레이아웃
 위에, 글자가 들어가는 자리(제목·화면ID·작성일·문서제목·쪽번호)는 placeholder로 있다.
 예시 슬라이드는 넣지 않는다 — 생성 단계가 레이아웃으로 슬라이드를 만들기 때문이다.
@@ -55,7 +58,7 @@ python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.p
 
 ### 2. [판단①] 매핑 작성과 확인
 
-`work/structure-report.json`을 읽고 `work/mapping.json`을 작성한다.
+`output/.work/structure-report.json`을 읽고 `output/.work/mapping.json`을 작성한다.
 필드 의미는 `references/mapping-schema.md`를 참고한다.
 
 `template_generated`가 `true`면 `template` 섹션은 `suggested_template_mapping`을
@@ -75,10 +78,10 @@ python <스킬>/scripts/analyze.py --excel <입력.xlsx> --template <템플릿.p
 ### 3. 추출
 
 ```bash
-python <스킬>/scripts/extract.py --excel <입력.xlsx> --mapping work/mapping.json --work work
+python <스킬>/scripts/extract.py --excel <입력.xlsx> --output output
 ```
 
-`work/screens.json`과 `work/images/`가 생긴다. 재추출은 둘 다 덮어쓴다.
+`output/.work/screens.json`과 `output/.work/images/`가 생긴다. 재추출은 둘 다 덮어쓴다.
 
 표지 시트의 프로젝트명·작성일 등은 `screens.json`의 `meta`로 들어가며, 템플릿에 같은
 이름의 도형(기본 템플릿의 `문서제목`·`작성일` 등)이 있으면 5단계에서 자동으로 채워진다.
@@ -95,8 +98,17 @@ Excel을 쓴 날이라 다르다(실제 샘플에서 두 달 벌어져 있었다
 ### 5. 생성
 
 ```bash
-python <스킬>/scripts/build.py --screens work/screens.json --mapping work/mapping.json --work work --out work/output/화면설계서.pptx
+python <스킬>/scripts/build.py --output output
 ```
+
+**결과물 이름은 스크립트가 정한다 — `--out-file`을 붙이지 않는다.** 원본 Excel
+파일명을 그대로 써서 `output/<Excel 이름>.pptx`로 저장하고, 같은 이름이 이미 있으면
+뒤에 `2`, `3`을 붙인다. 5단계를 다시 돌려도 직전 결과물이 남으므로 사용자가 두 버전을
+비교할 수 있다. 실행 출력의 `저장:` 줄에 실제 경로가 찍히므로 사용자에게 그 경로를
+그대로 알린다 — 번호가 붙었으면 그 사실도 함께 전한다.
+
+사용자가 파일명을 직접 지정했을 때만 `--out-file <경로>`를 쓴다. 이때는 번호를 붙이지
+않고 덮어쓴다.
 
 ### 6. [판단③] 검증 결과 보고
 

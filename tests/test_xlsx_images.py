@@ -54,7 +54,7 @@ def test_extract_images_writes_files_and_fills_screens(tmp_path: Path):
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS_SPEC)
     wb = load_workbook(xlsx)
     screens = _screens()
-    out = tmp_path / "work"
+    out = tmp_path / "output"
     extract_images(xlsx, wb, MAPPING, screens, out, Warnings())
 
     assert screens[0]["images"] == ["images/SCR001.png"]
@@ -69,7 +69,7 @@ def test_extract_images_warns_when_screen_has_none(tmp_path: Path):
     wb = load_workbook(xlsx)
     screens = [_screens()[0]]
     warns = Warnings()
-    extract_images(xlsx, wb, MAPPING, screens, tmp_path / "work", warns)
+    extract_images(xlsx, wb, MAPPING, screens, tmp_path / "output", warns)
     assert screens[0]["images"] == []
     assert [w["code"] for w in warns.to_list()] == ["no-image"]
 
@@ -81,7 +81,7 @@ def test_extract_images_falls_back_to_zip_when_openpyxl_misses_images(tmp_path: 
     for ws in wb.worksheets:
         ws._images = []
     screens = _screens()
-    out = tmp_path / "work"
+    out = tmp_path / "output"
     warns = Warnings()
     extract_images(xlsx, wb, MAPPING, screens, out, warns)
 
@@ -107,7 +107,7 @@ def test_extract_images_multi_image_screen_gets_suffixed_files(tmp_path: Path):
     screens = [
         {"id": "SCR001", "name": "목록", "sheet": "설계_SCR001", "images": [], "fields": {}, "details": []}
     ]
-    out = tmp_path / "work"
+    out = tmp_path / "output"
     warns = Warnings()
     extract_images(xlsx, wb2, MAPPING, screens, out, warns)
 
@@ -155,7 +155,7 @@ def test_extract_images_zip_fallback_orders_by_natural_filename(tmp_path: Path):
         {"id": sid, "name": sid, "sheet": "설계_%s" % sid, "images": [], "fields": {}, "details": []}
         for sid in ids
     ]
-    out = tmp_path / "work"
+    out = tmp_path / "output"
     warns = Warnings()
     extract_images(xlsx, wb2, MAPPING, screens, out, warns)
 
