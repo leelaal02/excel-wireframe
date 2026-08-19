@@ -125,9 +125,27 @@ def make_template_pptx(path: Path) -> Path:
     for i, box in enumerate(table_boxes):
         add_detail_table(slide, box, rows_per_table, "상세표%d" % (i + 1))
 
-    # 실제 샘플의 도형 이름과 예시 텍스트를 흉내 낸다
-    rename = {"제목": "제목 13", "화면ID": "텍스트 개체 틀 14", "화면이미지": "그림 18"}
-    example_text = {"제목": "화면명", "화면ID": "SCR000", "작성일": "2024-01-01"}
+    # 실제 샘플의 도형 이름과 예시 텍스트를 흉내 낸다. 제목 자리는 기본
+    # 템플릿에 없다(화면명은 메타 표가 담당한다) — clone 모드는 예시 슬라이드를
+    # 통째로 복제하는 방식이라 실제 샘플처럼 제목 도형이 있는 쪽을 흉내 낸다.
+    title = slide.shapes.add_textbox(Emu(3722514), Emu(0), Emu(1260000),
+                                     Emu(144000))
+    title.name = "제목 13"
+    title.text_frame.text = "화면명"
+
+    # 작성일도 마찬가지다. 조직 템플릿에는 날짜 자리가 따로 있는 경우가 흔해
+    # (실제 샘플의 '내용설명연결'은 DATE placeholder를 갖는다) meta 값이 이름이
+    # 같은 도형으로 들어가는 경로를 이 자리로 검증한다.
+    date_box = slide.shapes.add_textbox(Emu(8146752), Emu(0), Emu(504000),
+                                        Emu(144000))
+    date_box.name = "작성일"
+    date_box.text_frame.text = "2024-01-01"
+
+    # 메타 표는 레이아웃에만 두고 예시 슬라이드에는 올리지 않는다. clone 모드는
+    # 이 슬라이드를 통째로 복제하며 표를 전부 상세표로 보기 때문이다 — 메타 표
+    # 채우기는 layout 모드가 build에서 따로 상속해 처리한다.
+    rename = {"화면ID": "텍스트 개체 틀 14", "화면이미지": "그림 18"}
+    example_text = {"화면ID": "SCR000"}
     for shp in slide.shapes:
         if shp.name in example_text and shp.has_text_frame:
             shp.text_frame.text = example_text[shp.name]

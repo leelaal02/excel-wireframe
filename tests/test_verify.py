@@ -251,14 +251,15 @@ def test_verify_passes_for_layout_mode_output(tmp_path: Path):
         "슬라이드 크기": True,
     }
     assert result["ok"] is True
-    # 엄격 경로를 실제로 탔는지 확인한다: 제목 도형이 매핑이 정한 이름을 달고
-    # 있어야 _title_texts가 그 도형만 본다. 이름이 'Title 1'로 남아 있으면 위
-    # 검사들은 느슨한 경로로도 전부 통과하므로 이 확인이 따로 필요하다.
+    # 엄격 경로를 실제로 탔는지 확인한다: 기본 템플릿은 화면명을 상단 메타 표
+    # '화면명' 칸 자리에 얹으므로 _title_texts가 그 자리를 봐야 한다. 안 보면 위
+    # 검사들이 '아무 도형의 텍스트나 본다'는 느슨한 경로로도 전부 통과해 버린다.
+    from slide_layout import meta_slot_name
+
     slide = Presentation(str(out)).slides[0]
-    title_name = mapping["template"]["shapes"]["title"]
-    assert [s.name for s in slide.shapes if s.name == title_name] == [title_name]
-    assert next(s for s in slide.shapes if s.name == title_name)\
-        .text_frame.text == "이용기관 목록"
+    by_name = {s.name: s for s in slide.shapes}
+    assert by_name[meta_slot_name("화면명")].text_frame.text == "이용기관 목록"
+    assert by_name[meta_slot_name("ID")].text_frame.text == "SCR001"
 
 
 def test_verify_detects_slide_count_mismatch(tmp_path: Path):

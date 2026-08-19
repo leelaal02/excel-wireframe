@@ -9,6 +9,7 @@ Excel은 전혀 모른다. mapping.json에서도 template / options 섹션만 �
 from __future__ import annotations
 
 import argparse
+import copy
 import sys
 from datetime import date
 from pathlib import Path
@@ -26,7 +27,7 @@ from common import (
 )
 from pptx import Presentation
 from image_split import split_for_box
-from slide_clone import clone_slide
+from slide_clone import clone_slide, drop_slide
 from slide_fill import (
     collect_tables,
     count_slots,
@@ -34,23 +35,26 @@ from slide_fill import (
     find_shape,
     place_image,
     set_text,
+    set_text_or_required,
 )
 from slide_layout import (
     DEFAULT_CONTENT_AREA,
     DETAIL_FONT_PT,
     DETAIL_FONT_STEPS,
-    MIN_IMAGE_HEIGHT_EMU,
     add_detail_table,
     add_image_anchor,
     detail_text_width,
     drop_empty_placeholders,
+    add_meta_text_slots,
     find_layout,
+    has_auto_field,
     inherit_placeholders,
-    measured_row_heights,
+    meta_slot_name,
     name_placeholders,
+    ratio_row_heights,
     split_content_area,
 )
-from text_metrics import plan_row_heights
+from text_metrics import fits_lines, text_lines
 from verify import verify_output
 
 
@@ -71,20 +75,6 @@ def page_title(name: str, index: int, total: int) -> str:
     return "%s (%d/%d)" % (name, index + 1, total)
 
 
-def _drop_slide(prs, slide) -> None:
-    """프레젠테이션에서 슬라이드를 제거한다.
-
-    python-pptx에 삭제 API가 없어 sldIdLst 항목과 관계를 직접 지운다.
-    복제가 모두 끝난 뒤에 원본을 지워야 한다 — 먼저 지우면 복제 소스가 사라진다.
-    """
-    xml_slides = prs.slides._sldIdLst
-    for sld_id in list(xml_slides):
-        if prs.part.rels[sld_id.rId].target_part is slide.part:
-            prs.part.drop_rel(sld_id.rId)
-            xml_slides.remove(sld_id)
-            return
-
-
 def _new_layout_slide(prs, layout, tpl, warns, screen_id,
                       row_heights=None, size_pt=DETAIL_FONT_PT):
     """레이아웃으로 슬라이드를 만들고, 레이아웃에 없는 자리만 채워 넣는다.
@@ -103,6 +93,13 @@ def _new_layout_slide(prs, layout, tpl, warns, screen_id,
 
     slide = prs.slides.add_slide(layout)
     inherit_placeholders(slide, layout)
+    # 레이아웃의 상단 메타 표는 배경으로 비칠 뿐 슬라이드의 도형이 아니다.
+    # 표를 덮어쓰지 않고 값이 들어갈 칸 자리에 글자만 올린다 —
+    # add_meta_text_slots가 그 이유를 담고 있다.
+    meta_cfg = tpl.get("meta_table") or {}
+    if meta_cfg:
+        add_meta_text_slots(slide, layout, meta_cfg.get("tables"),
+                            (meta_cfg.get("labels") or {}).keys())
     name_placeholders(slide, tpl.get("placeholders", {}), shapes_cfg,
                       warns, screen_id)
 
@@ -171,55 +168,101 @@ def plan_pages(scr: dict, slot_count: int, work_dir: Path, image_box,
     return pages, None
 
 
-def _cap_heights(heights, floors, limit: int) -> list[int]:
-    """표 높이가 한계를 넘으면 하한을 지키며 비례 축소한다.
+def _page_fits(texts, heights, rows: int, width: int, size_pt: float) -> bool:
+    """이 장의 상세가 모두 고정 행높이 안에 들어가는가.
 
-    가장 작은 글자로도 안 들어가는 상세가 있을 때 쓴다. 그냥 두면
-    split_content_area가 ValueError를 던지고 화면 단위 격리에 걸려 그 화면이
-    통째로 '[생성 실패]'가 된다 — 넘침을 막으려다 화면을 잃는 셈이다.
-
-    높이를 깎으면 텍스트가 셀을 넘치지만 표는 슬라이드 안에 남는다. 넘친 항목은
-    text-overflow 경고가 잡아 사람이 문장을 고치게 한다.
+    상세 i는 fill_slots가 흘려 넣는 순서대로 표 i//rows의 i%rows행에 앉는다.
+    행 높이는 표마다 같으므로 행 번호만 보면 된다.
     """
-    total = sum(heights)
-    if total <= limit:
-        return list(heights)
-    slack = total - sum(floors)   # 하한 위로 늘어난 양
-    room = limit - sum(floors)    # 하한 위로 허용된 양
-    if slack <= 0 or room <= 0:
-        return list(floors)
-    return [f + (h - f) * room // slack for h, f in zip(heights, floors)]
+    for i, text in enumerate(texts):
+        if text_lines(text, width, size_pt) > fits_lines(heights[i % rows], size_pt):
+            return False
+    return True
 
 
 def _fit_tables(pages, area, count: int, rows: int, text_key: str):
-    """화면의 장별 행 높이와, 화면 전체가 공유할 설명 칸 글자 크기를 정한다.
+    """화면 전체가 공유할 설명 칸 글자 크기를 정한다. 행 높이는 고정이다.
 
-    2패스의 두 번째다. 배분(pages)은 이미 확정됐고, 여기서는 그 배분에 맞는
-    표 높이만 구한다 — 배분을 다시 돌리면 이미지 자리가 바뀌어 조각 수가 바뀌고,
-    조각 수가 바뀌면 배분이 또 바뀌어 순환에 빠진다.
+    2패스의 두 번째다. 배분(pages)은 이미 확정됐고, 여기서는 그 배분이 고정된
+    표 안에 들어가는지만 본다 — 배분을 다시 돌리면 이미지 자리가 바뀌어 조각
+    수가 바뀌고, 조각 수가 바뀌면 배분이 또 바뀌어 순환에 빠진다.
 
-    높이는 장마다 자기 내용에 맞춰 잡는다. 전 장을 최악값으로 통일하면 긴 상세
-    하나가 모든 장의 표를 밀어 올려 이미지 자리를 통째로 잡아먹는다. 배분을
-    재계산하지 않으므로 장마다 높이가 달라도 순환은 생기지 않고, 이미지는
-    place_image가 비율을 지켜 축소 배치한다.
+    **행 높이는 내용에 따라 늘리지 않는다.** 늘리면 상세가 긴 화면만 표가
+    위로 자라 사진 자리가 줄고, 화면마다 사진 크기가 달라진다. 대신 글자
+    크기를 낮춰(7 → 6.5 → 6pt) 맞춘다. 6pt로도 넘치는 상세는 fill_slots가
+    text-overflow 경고로 잡아 사람이 문장을 고치게 한다.
 
-    글자 크기만은 화면 단위로 통일한다 — 한 장만 작으면 장을 넘길 때 글자가
+    글자 크기는 화면 단위로 통일한다 — 한 장만 작으면 장을 넘길 때 글자가
     커졌다 작아졌다 한다.
 
     (장별 행 높이 목록, 글자 크기, 낮췄는지)를 돌려준다.
     """
-    floors = measured_row_heights(rows)
+    heights = ratio_row_heights(area[3], rows)
     width = detail_text_width(area[2], count)
-    limit = area[3] - MIN_IMAGE_HEIGHT_EMU
     texts = [[str(d.get(text_key, "") or "") for d in page] for page, _ in pages]
 
     for size_pt in DETAIL_FONT_STEPS:
-        per_page = [plan_row_heights([t], rows, width, size_pt, floors)
-                    for t in texts]
-        if all(sum(h) <= limit for h in per_page):
-            return per_page, size_pt, size_pt != DETAIL_FONT_STEPS[0]
-    return ([_cap_heights(h, floors, limit) for h in per_page],
-            DETAIL_FONT_STEPS[-1], True)
+        if all(_page_fits(t, heights, rows, width, size_pt) for t in texts):
+            return ([list(heights) for _ in pages], size_pt,
+                    size_pt != DETAIL_FONT_STEPS[0])
+    return [list(heights) for _ in pages], DETAIL_FONT_STEPS[-1], True
+
+
+SUMMARY_NAME = "summaries.json"
+
+
+def apply_summaries(screens_data: dict, work_dir: Path, text_key: str):
+    """`.work/summaries.json`의 화면설명 요약으로 상세 텍스트를 갈아끼운다.
+
+    Excel 원문은 화면설계서에 그대로 싣기엔 길다(실제 샘플 평균 94자). 추출과
+    생성 사이에서 Claude가 요소명 + 개조식 한 줄로 줄여 이 파일에 남기면 여기서
+    반영한다. 파일이 없으면 원문을 그대로 쓴다.
+
+    `{"화면ID": {"상세번호": "요약문"}}` 꼴이다. 상세번호는 Excel 값을 그대로
+    쓰므로(스크린샷의 SoM 뱃지와 대응) 재추출해도 키가 유지된다.
+
+    넘겨받은 screens_data는 건드리지 않는다 — 호출자의 것이다.
+    (바뀐 사본, 갈아끼운 건수)를 돌려준다.
+    """
+    path = Path(work_dir) / SUMMARY_NAME
+    if not path.exists():
+        return screens_data, 0
+
+    table = read_json(path) or {}
+    data = copy.deepcopy(screens_data)
+    applied = 0
+    for scr in data.get("screens", []):
+        per_screen = table.get(scr.get("id")) or {}
+        if not per_screen:
+            continue
+        for detail in scr.get("details", []):
+            text = per_screen.get(str(detail.get("no", "")))
+            if text:
+                detail[text_key] = text
+                applied += 1
+    return data, applied
+
+
+def _mark_failed(slide, tpl: dict, label: str) -> None:
+    """실패한 화면임을 결과물에서 바로 보이게 표시한다.
+
+    제목 도형이 있으면 거기에 쓰고, 없으면 상단 메타 표의 화면명 칸에 쓴다 —
+    기본 템플릿은 화면명을 메타 표가 담당해 제목 도형이 없다.
+    """
+    shapes_cfg = tpl.get("shapes", {})
+    title_name = shapes_cfg.get("title")
+    shp = find_shape(slide, title_name) if title_name else None
+    if shp is not None:
+        set_text(shp, label)
+        return
+
+    meta_cfg = tpl.get("meta_table") or {}
+    for lab, key in (meta_cfg.get("labels") or {}).items():
+        if key != "title":
+            continue
+        shp = find_shape(slide, meta_slot_name(lab))
+        if shp is not None:
+            set_text(shp, label)
 
 
 def _today() -> str:
@@ -247,6 +290,26 @@ def _doc_meta(screens_data: dict, mapping: dict) -> dict:
     return meta
 
 
+def _value_resolver(scr: dict, doc_meta: dict, title: str):
+    """이름 하나로 값을 찾는 함수를 만든다.
+
+    화면별 fields가 문서 meta를 이긴다 — 화면마다 다른 값이 있으면 그게 더
+    구체적이다. `title`과 `screen_id`는 화면의 이름·ID를 가리키는 예약어다.
+    """
+    fields = scr.get("fields") or {}
+
+    def resolve(key: str):
+        if key == "title":
+            return title
+        if key == "screen_id":
+            return scr.get("id")
+        if key in fields:
+            return fields[key]
+        return doc_meta.get(key)
+
+    return resolve
+
+
 def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
                work_dir: Path, warns: Warnings, meta: dict | None = None,
                image_path: Path | None = None) -> None:
@@ -256,38 +319,36 @@ def _fill_page(slide, scr: dict, page: list[dict], title: str, mapping: dict,
     cols = tpl.get("table_columns", {"no": 0, "text": 1})
     text_key = opts.get("detail_text_source", "desc")
     clear_unused = bool(opts.get("clear_unused_slots", True))
-
-    title_name = shapes_cfg.get("title")
-    if title_name:
-        shp = find_shape(slide, title_name)
-        if shp is None:
-            warns.add(scr["id"], "shape-not-found", "제목 도형 '%s' 없음" % title_name)
-        else:
-            set_text(shp, title)
-
-    sid_name = shapes_cfg.get("screen_id")
-    if sid_name:
-        shp = find_shape(slide, sid_name)
-        if shp is None:
-            warns.add(scr["id"], "shape-not-found", "화면ID 도형 '%s' 없음" % sid_name)
-        else:
-            set_text(shp, scr["id"])
-
-    # 화면별 fields가 문서 meta를 이긴다. 화면마다 다른 값이 있으면 그게 더 구체적이다.
-    reserved = {"title", "screen_id", "image", "detail_tables"}
     doc_meta = meta or {}
+    resolve = _value_resolver(scr, doc_meta, title)
+
+    # 값이 없는 자리는 비워 두지 않고 "입력필요"를 빨강·굵게 남긴다. 비워 두면
+    # 채워야 할 자리가 있다는 사실 자체가 산출물에서 사라진다.
+    reserved = {"image", "detail_tables"}
     for key, name in shapes_cfg.items():
-        if key in reserved:
-            continue
-        if key in (scr.get("fields") or {}):
-            value = (scr.get("fields") or {})[key]
-        elif key in doc_meta:
-            value = doc_meta[key]
-        else:
+        if key in reserved or not isinstance(name, str):
             continue
         shp = find_shape(slide, name)
-        if shp is not None:
+        if shp is None:
+            if key in ("title", "screen_id"):
+                warns.add(scr["id"], "shape-not-found",
+                          "%s 도형 '%s' 없음"
+                          % ("제목" if key == "title" else "화면ID", name))
+            continue
+        value = resolve(key)
+        if value is not None and str(value).strip():
             set_text(shp, value)
+        elif not has_auto_field(shp):
+            # 쪽번호처럼 자동 필드를 담은 자리는 PowerPoint가 값을 그린다.
+            # 값이 없다고 "입력필요"를 쓰면 그 필드가 사라진다.
+            set_text_or_required(shp, None)
+
+    # 상단 메타 표 — 표 위에 얹어 둔 글자 자리를 라벨로 찾아 채운다.
+    meta_cfg = tpl.get("meta_table") or {}
+    for label, key in (meta_cfg.get("labels") or {}).items():
+        shp = find_shape(slide, meta_slot_name(label))
+        if shp is not None:
+            set_text_or_required(shp, resolve(key))
 
     img_name = shapes_cfg.get("image")
     if img_name:
@@ -319,6 +380,12 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     prs = Presentation(str(template_path))
     mode = tpl.get("mode", "clone")
     originals = list(prs.slides)
+
+    # 표 셀에 넣는 것과 같은 필드를 봐야 표 높이·글자 크기가 내용과 맞는다.
+    text_key = mapping.get("options", {}).get("detail_text_source", "desc")
+    screens_data, summarized = apply_summaries(screens_data, work_dir, text_key)
+    if summarized:
+        print("  화면설명 요약 %d건을 반영했습니다 (%s)" % (summarized, SUMMARY_NAME))
 
     if mode == "layout":
         layout = find_layout(prs, tpl.get("layout", 0))
@@ -383,8 +450,6 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
     failed_ids: list[str] = []
     screen_count = 0
     doc_meta = _doc_meta(screens_data, mapping)
-    # _fill_page가 셀에 넣는 것과 같은 필드를 봐야 표 높이가 내용과 맞는다.
-    text_key = mapping.get("options", {}).get("detail_text_source", "desc")
 
     for scr in screens_data.get("screens", []):
         screen_count += 1
@@ -432,15 +497,13 @@ def build(screens_data: dict, mapping: dict, work_dir: Path, out_path: Path,
             warns.add(scr_id, "screen-failed", "슬라이드 생성 실패: %s" % exc)
             if len(prs.slides) > len(originals) + made:
                 # 예외 직전에 만들어진 슬라이드가 남아 있다. 어디가 실패했는지
-                # 결과물에서 바로 보이도록 제목만 실패 표시로 바꾼다.
-                title_name = tpl.get("shapes", {}).get("title")
-                shp = find_shape(prs.slides[-1], title_name) if title_name else None
-                if shp is not None:
-                    set_text(shp, "[생성 실패] %s" % scr.get("name", scr_id))
+                # 결과물에서 바로 보이도록 화면명 자리만 실패 표시로 바꾼다.
+                _mark_failed(prs.slides[-1], tpl,
+                             "[생성 실패] %s" % scr.get("name", scr_id))
                 made += 1
 
     for slide in originals:
-        _drop_slide(prs, slide)
+        drop_slide(prs, slide)
 
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

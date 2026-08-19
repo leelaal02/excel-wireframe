@@ -19,7 +19,7 @@ def test_build_report_joins_both_sides(tmp_path: Path):
     pptx = make_template_pptx(tmp_path / "t.pptx")
     report = build_report(xlsx, pptx)
     assert [s["name"] for s in report["excel"]["sheets"]][1] == "설계_SCR001"
-    assert report["template"]["slide_width"] == 9906000
+    assert report["template"]["slide_width"] == 9144000
     assert report["suggestion"]["mode"] == "clone"
 
 
@@ -169,9 +169,11 @@ def test_main_without_template_generates_one(tmp_path: Path):
     assert data["suggestion"]["mode"] == "layout"
 
     suggested = data["suggested_template_mapping"]
-    assert suggested["shapes"]["title"] == "제목"
+    assert suggested["shapes"]["screen_id"] == "화면ID"
     assert suggested["shapes"]["detail_tables"][0] == "상세표1"
-    assert data["template"]["slide_width"] == 9906000
+    # 화면명은 상단 메타 표가 담당한다
+    assert suggested["meta_table"]["labels"]["화면명"] == "title"
+    assert data["template"]["slide_width"] == 9144000
 
 
 def test_main_with_given_template_has_no_suggestion(tmp_path: Path):
@@ -186,9 +188,10 @@ def test_suggested_mapping_carries_meta_shapes(tmp_path: Path):
     xlsx = make_sheet_per_screen_xlsx(tmp_path / "s.xlsx", SCREENS)
     out = tmp_path / "output" / "structure-report.json"
     main(["--excel", str(xlsx), "--out", str(out)])
-    shapes = read_json(out)["suggested_template_mapping"]["shapes"]
-    assert shapes["문서제목"] == "문서제목"
-    assert shapes["작성일"] == "작성일"
+    tpl = read_json(out)["suggested_template_mapping"]
+    assert tpl["shapes"]["문서제목"] == "문서제목"
+    # 작성일은 도형이 아니라 상단 메타 표의 '작성일' 칸에 들어간다
+    assert tpl["meta_table"]["labels"]["작성일"] == "작성일"
 
 
 def test_analyze_suggests_layout_mode_mapping(tmp_path: Path):
@@ -214,15 +217,15 @@ def test_analyze_suggests_layout_mode_mapping(tmp_path: Path):
     # 통과하는 검사였다. SKILL.md는 이 값을 그대로 복사하라고 안내하므로
     # 실제 실행에 쓰이는 content_area는 실측 폴백(DEFAULT_CONTENT_AREA)이
     # 아니라 여기 값이다. 껍데기를 실제로 비켜 갔는지 값으로 확인한다.
-    from default_template import MEASURED_SHELL
-    divider = MEASURED_SHELL["구분선"]      # 상단 껍데기 중 가장 아래
+    from default_template import MEASURED_SHELL, META_TABLES
+    meta2 = META_TABLES[1]["box"]           # 상단 껍데기 중 가장 아래
     footer = MEASURED_SHELL["하단바"]
     left, top, width, height = tpl["content_area"]
     assert left == 0
-    assert top == divider[1] + divider[3] == 620688      # 구분선 바로 아래
+    assert top == meta2[1] + meta2[3] == 312249          # 메타표2 바로 아래
     assert top + height == footer[1] == 6716266          # 하단바 바로 위
     assert height > 0
-    assert width == report["template"]["slide_width"] == 9906000
+    assert width == report["template"]["slide_width"] == 9144000
 
 
 def test_suggested_mapping_builds_with_its_own_content_area(tmp_path: Path):
@@ -257,7 +260,9 @@ def test_suggested_mapping_builds_with_its_own_content_area(tmp_path: Path):
 
     slide = Presentation(str(ppt)).slides[0]
     c_left, c_top, c_width, c_height = tpl["content_area"]
-    tables = [s for s in slide.shapes if s.has_table]
+    meta_names = set(tpl["meta_table"]["tables"])
+    tables = [s for s in slide.shapes
+              if s.has_table and s.name not in meta_names]
     assert len(tables) == 5
     # 표는 본문 영역 아래쪽에 붙고(하단바 위), 이미지 자리는 그 위 나머지다
     assert tables[0].top + tables[0].height == c_top + c_height

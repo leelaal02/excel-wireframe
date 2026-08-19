@@ -1,11 +1,9 @@
 # -*- coding: utf-8 -*-
-from pathlib import Path
-
 import pytest
 from common import Warnings
 from text_metrics import CELL_MARGIN
 from pptx import Presentation
-from pptx.util import Emu, Pt
+from pptx.util import Pt
 from slide_layout import (
     DEFAULT_CONTENT_AREA,
     P_NS,
@@ -370,3 +368,29 @@ def test_add_detail_table_text_margin_comes_from_the_shared_constant():
     txt = table.cell(0, 1)
     assert txt.margin_left == CELL_MARGIN
     assert txt.margin_top == CELL_MARGIN
+
+
+# --- 본문 높이에 비례한 행높이 ---
+
+def test_ratio_row_heights_matches_measurements_at_the_reference_height():
+    """기준 본문(ROW_HEIGHTS를 잰 높이)에서는 실측값 그대로여야 한다."""
+    from slide_layout import MEASURED_CONTENT_HEIGHT, ROW_HEIGHTS, ratio_row_heights
+    assert ratio_row_heights(MEASURED_CONTENT_HEIGHT, 4) == ROW_HEIGHTS
+
+
+def test_ratio_row_heights_scales_with_the_content_area():
+    from slide_layout import MEASURED_CONTENT_HEIGHT, ROW_HEIGHTS, ratio_row_heights
+    half = ratio_row_heights(MEASURED_CONTENT_HEIGHT // 2, 4)
+    assert sum(half) == sum(ROW_HEIGHTS) // 2 or abs(
+        sum(half) - sum(ROW_HEIGHTS) // 2) <= 4      # 정수 절삭 오차
+    for h, base in zip(half, ROW_HEIGHTS):
+        assert abs(h - base // 2) <= 2
+
+
+def test_split_content_area_puts_tables_at_the_same_ratio_in_any_area():
+    """레이아웃·슬라이드 크기가 달라도 표가 본문에서 차지하는 몫이 같다."""
+    from slide_layout import split_content_area
+
+    small = split_content_area((0, 0, 9144000, 3000000), 5, 4)[1][0]
+    big = split_content_area((0, 0, 9144000, 6000000), 5, 4)[1][0]
+    assert abs(small[3] / 3000000 - big[3] / 6000000) < 0.001

@@ -10,6 +10,7 @@ import copy
 from pathlib import Path
 
 from PIL import Image
+from pptx.dml.color import RGBColor
 from text_metrics import fits_lines, text_lines
 
 
@@ -21,6 +22,11 @@ def find_shape(slide, name: str):
 
 
 A_NS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+
+# 미입력 표시용 "입력필요"(빨강·굵게). 값을 못 찾은 자리를 비워 두면 채워야 할
+# 자리가 있다는 사실 자체가 산출물에서 사라진다 — 눈에 띄게 남겨 사람이 채우게 한다.
+INPUT_REQUIRED = "입력필요"
+INPUT_REQUIRED_COLOR = RGBColor(0xFF, 0x00, 0x00)
 
 
 def _drop_fields(paragraph) -> None:
@@ -38,18 +44,38 @@ def _drop_fields(paragraph) -> None:
         p.remove(fld)
 
 
-def _fill_text_frame(tf, text: str) -> None:
+def _emphasize(tf) -> None:
+    """텍스트 프레임의 모든 런을 빨강·굵게로 바꾼다.
+
+    런을 새로 만들지 않고 이미 놓인 런의 속성만 건드린다 — 크기·글꼴 같은
+    나머지 서식은 템플릿 값 그대로 남아야 한다.
+    """
+    for p in tf.paragraphs:
+        for run in p.runs:
+            run.font.bold = True
+            run.font.color.rgb = INPUT_REQUIRED_COLOR
+
+
+def _fill_text_frame(tf, text: str, emphasis: bool = False) -> None:
     lines = str(text).split("\n") if text else [""]
     p0 = tf.paragraphs[0]
     _drop_fields(p0)
 
+    # 빈 자리는 런이 없고 서식을 endParaRPr에 품고 있다 — PowerPoint가 "다음에
+    # 칠 글자의 서식"으로 저장해 두는 자리다. 그냥 런을 만들면 그 서식을 잃고
+    # 크기가 상속(기본 18pt)으로 떨어져, 0.13인치짜리 메타 표 행이 부풀어 버린다.
+    # 원본이 정해 둔 크기를 그대로 물려받아야 자리가 원본 상태로 남는다.
+    end_rPr = p0._p.find("{%s}endParaRPr" % A_NS)
     if p0.runs:
         base_run = p0.runs[0]
+        rPr = base_run._r.find("{%s}rPr" % A_NS)
     else:
         base_run = p0.add_run()
-    rPr = base_run._r.find(
-        "{http://schemas.openxmlformats.org/drawingml/2006/main}rPr"
-    )
+        rPr = None
+        if end_rPr is not None:
+            rPr = copy.deepcopy(end_rPr)
+            rPr.tag = "{%s}rPr" % A_NS
+            base_run._r.insert(0, rPr)
     base_rPr = copy.deepcopy(rPr) if rPr is not None else None
 
     # 문단 속성(줄간격·정렬)도 물려줘야 한다. 런 속성만 옮기면 둘째 줄부터
@@ -75,15 +101,32 @@ def _fill_text_frame(tf, text: str) -> None:
         if base_rPr is not None:
             run._r.insert(0, copy.deepcopy(base_rPr))
 
+    if emphasis:
+        _emphasize(tf)
 
-def set_text(shape, text: str) -> None:
+
+def set_text(shape, text: str, emphasis: bool = False) -> None:
     if not shape.has_text_frame:
         return
-    _fill_text_frame(shape.text_frame, text)
+    _fill_text_frame(shape.text_frame, text, emphasis)
 
 
-def set_cell_text(cell, text: str) -> None:
-    _fill_text_frame(cell.text_frame, text)
+def set_cell_text(cell, text: str, emphasis: bool = False) -> None:
+    _fill_text_frame(cell.text_frame, text, emphasis)
+
+
+def set_text_or_required(target, value, is_cell: bool = False) -> bool:
+    """값이 있으면 그대로, 없으면 "입력필요"를 빨강·굵게 쓴다.
+
+    도형과 표 셀 둘 다 받는다. 채웠으면 True, 입력필요를 남겼으면 False.
+    """
+    text = "" if value is None else str(value).strip()
+    write = set_cell_text if is_cell else set_text
+    if text:
+        write(target, text)
+        return True
+    write(target, INPUT_REQUIRED, True)
+    return False
 
 
 def estimate_overflow(text, cell_width_emu: int, cell_height_emu: int,
@@ -134,7 +177,12 @@ def count_slots(tables) -> int:
 
 
 def place_image(slide, anchor_shape, image_path: Path):
-    """앵커 도형 자리에 종횡비를 유지해 이미지를 넣고 앵커는 지운다."""
+    """앵커 도형 자리에 종횡비를 유지해 이미지를 넣고 앵커는 지운다.
+
+    세로는 자리 위쪽에 붙이고 가로는 가운데에 둔다. 스크린샷은 위에서부터 읽는
+    것이라 장을 넘길 때 상단 기준선이 흔들리지 않아야 하고, 세로로 가운데를
+    맞추면 짧은 이미지가 아래 상세표 쪽으로 내려앉아 위가 휑하게 빈다.
+    """
     left = anchor_shape.left
     top = anchor_shape.top
     box_w = anchor_shape.width
@@ -147,7 +195,7 @@ def place_image(slide, anchor_shape, image_path: Path):
     new_w = int(iw * scale)
     new_h = int(ih * scale)
     new_left = left + (box_w - new_w) // 2
-    new_top = top + (box_h - new_h) // 2
+    new_top = top
 
     pic = slide.shapes.add_picture(str(image_path), new_left, new_top, new_w, new_h)
     anchor_shape._element.getparent().remove(anchor_shape._element)

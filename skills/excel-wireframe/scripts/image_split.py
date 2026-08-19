@@ -39,6 +39,7 @@ NAV_SKIP_RATIO = 0.12      # 좌측 네비게이션은 세로로 계속 이어�
 CUT_MIN_RATIO = 0.5        # 목표 높이의 이 배수부터 자를 곳을 찾는다
 CUT_MAX_RATIO = 1.5        # 이 배수를 넘으면 여백이 없어도 자른다
 HEADER_MAX_PX = 40         # 띠와 띠 사이가 이보다 얇으면 섹션 헤더 한 줄로 본다. 헤더 고아 방지
+PAD_COLOR = (255, 255, 255)  # 조각 높이를 맞출 때 아래에 덧대는 색. 스크린샷 배경에 맞춘 흰색
 
 
 # detect_badges() 함수: 화면에 있는 SoM 노란 번호를 모두 찾는 것
@@ -173,14 +174,29 @@ def plan_cuts(height: int, target_h: int, bands, badges) -> list[tuple[int, int,
     return cuts
 
 
-def slice_image(path: Path, cuts, out_dir: Path, stem: str) -> list[Path]:
-    """계획대로 이미지를 잘라 저장하고 조각 경로를 돌려준다."""
+def slice_image(path: Path, cuts, out_dir: Path, stem: str,
+                uniform: bool = True) -> list[Path]:
+    """계획대로 이미지를 잘라 저장하고 조각 경로를 돌려준다.
+
+    조각 높이는 여백 띠를 따라가므로 제각각이다(내용을 가로질러 자르지 않기
+    위해서다). 그대로 두면 조각마다 가로세로 비가 달라, 같은 자리에 비율을
+    지켜 앉힐 때 슬라이드마다 사진 크기가 달라진다.
+
+    `uniform`이면 모든 조각을 가장 큰 조각 높이의 캔버스에 위 정렬로 붙여
+    비를 맞춘다. 잘라 내는 것이 아니라 아래에 여백을 덧대는 것이라 내용은
+    그대로이고, 배치했을 때 모든 슬라이드에서 사진이 같은 자리·같은 크기가 된다.
+    """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    pad_to = max((bottom - top + 1) for top, bottom, _n in cuts) if uniform else 0
     made = []
     with Image.open(path) as im:
         for i, (top, bottom, _n) in enumerate(cuts):
             piece = im.crop((0, top, im.width, bottom + 1))
+            if piece.height < pad_to:
+                canvas = Image.new("RGB", (im.width, pad_to), PAD_COLOR)
+                canvas.paste(piece, (0, 0))
+                piece = canvas
             p = out_dir / ("%s_part%d.png" % (stem, i + 1))
             piece.save(p)
             made.append(p)

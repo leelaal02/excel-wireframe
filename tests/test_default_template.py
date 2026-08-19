@@ -4,6 +4,7 @@ from pathlib import Path
 from default_template import (
     DEFAULT_LAYOUT_NAME,
     DEFAULT_SHAPE_NAMES,
+    META_TABLE_NAMES,
     PLACEHOLDER_IDX,
     build_default_template,
     default_template_mapping,
@@ -11,19 +12,30 @@ from default_template import (
 from pptx import Presentation
 from slide_layout import P_NS
 
+# 실제 화면설계서 '내용설명연결' 레이아웃에서 잰 값. 소스의 상수를 그대로
+# 끌어다 쓰면 값이 바뀌어도 통과하는 검사가 되므로 여기에 따로 적는다.
 MEASURED_PLACEHOLDERS = {
-    0: (3722514, 0, 1260000, 144000),
-    1: (8121353, 188640, 1766860, 138032),
-    10: (8146752, 0, 504000, 144000),
-    11: (0, 6738252, 2648744, 100027),
-    12: (4734198, 6716266, 437604, 144000),
+    1: (7496632, 188657, 1635346, 144000),    # 화면ID
+    11: (0, 6750725, 2444995, 75085),          # 문서제목
+    12: (4370029, 6716266, 403943, 144000),    # 쪽번호
 }
 MEASURED_SHELL = {
-    "상단띠": (0, 0, 9896172, 137234),
-    "상단띠2": (0, 195617, 8049346, 137234),
-    "구분선": (-1, 404664, 9892977, 216024),
-    "화면ID배경": (8121352, 188657, 1771625, 144000),
-    "하단바": (0, 6716266, 9906000, 144000),
+    "본문박스": (-1, 404664, 9131979, 6264697),
+    "화면ID배경": (7496632, 188657, 1635346, 144000),
+    "하단바": (0, 6716266, 9144000, 144000),
+}
+MEASURED_META_TABLES = {
+    "메타표1": {
+        "box": (1, 0, 9134931, 116632),
+        "cols": 18,
+        "labels": ["프로젝트명", "산출물명", "화면명", "버전", "작성자",
+                   "검토자", "작성일", "수정일", "ID"],
+    },
+    "메타표2": {
+        "box": (1, 195617, 7430165, 116632),
+        "cols": 6,
+        "labels": ["네비게이션", "화면유형", "알림여부"],
+    },
 }
 
 
@@ -36,7 +48,7 @@ def _layout(path: Path):
 
 def test_default_template_uses_measured_size(tmp_path: Path):
     prs = Presentation(str(build_default_template(tmp_path / "d.pptx")))
-    assert prs.slide_width == 9906000
+    assert prs.slide_width == 9144000
     assert prs.slide_height == 6858000
 
 
@@ -75,6 +87,27 @@ def test_default_template_shell_is_on_the_layout(tmp_path: Path):
         assert (s.left, s.top, s.width, s.height) == geom, name
 
 
+def test_default_template_meta_tables_match_measurements(tmp_path: Path):
+    """상단 메타 표는 라벨과 값이 번갈아 놓인 1행짜리 표다."""
+    lay = _layout(build_default_template(tmp_path / "d.pptx"))
+    by_name = {s.name: s for s in lay.shapes if s.has_table}
+    for name, spec in MEASURED_META_TABLES.items():
+        assert name in by_name, name
+        shp = by_name[name]
+        assert (shp.left, shp.top, shp.width) == spec["box"][:3], name
+        table = shp.table
+        assert len(table.columns) == spec["cols"], name
+        assert len(table.rows) == 1, name
+        assert [table.cell(0, i).text
+                for i in range(0, spec["cols"], 2)] == spec["labels"], name
+        # 값 칸은 비어 있되 런은 있어야 한다 — 런이 없으면 빌드가 값을 채울 때
+        # 글자 크기가 기본값(18pt)으로 잡혀 칸을 넘는다.
+        for i in range(1, spec["cols"], 2):
+            para = table.cell(0, i).text_frame.paragraphs[0]
+            assert table.cell(0, i).text == ""
+            assert para.runs and para.runs[0].font.size is not None
+
+
 def test_default_template_placeholders_start_empty(tmp_path: Path):
     """표지가 없는 Excel에서 자리표시 문구가 산출물에 찍히면 안 된다."""
     lay = _layout(build_default_template(tmp_path / "d.pptx"))
@@ -98,8 +131,9 @@ def test_default_template_shell_sits_behind_every_placeholder(tmp_path: Path):
     shells = [i for i, s in enumerate(lay.shapes) if not s.is_placeholder]
     phs = [i for i, s in enumerate(lay.shapes) if s.is_placeholder]
 
-    # 다섯 껍데기가 전부 레이아웃에 있어야 아래 비교가 의미를 갖는다
-    assert {s.name for s in lay.shapes if not s.is_placeholder} == set(MEASURED_SHELL)
+    # 껍데기와 메타 표가 전부 레이아웃에 있어야 아래 비교가 의미를 갖는다
+    assert ({s.name for s in lay.shapes if not s.is_placeholder}
+            == set(MEASURED_SHELL) | set(MEASURED_META_TABLES))
     assert len(phs) == len(MEASURED_PLACEHOLDERS)
     assert max(shells) < min(phs), [s.name for s in lay.shapes]
 
@@ -137,7 +171,12 @@ def test_default_template_mapping_is_layout_mode(tmp_path: Path):
     assert "source_slide" not in m
     assert m["placeholders"] == PLACEHOLDER_IDX
     assert m["detail_tables"] == {"count": 5, "rows": 4}
-    assert m["shapes"]["title"] == DEFAULT_SHAPE_NAMES["title"]
+    assert m["shapes"]["screen_id"] == DEFAULT_SHAPE_NAMES["screen_id"]
+    # 화면명·작성일은 placeholder가 아니라 메타 표가 담당한다
+    assert m["meta_table"]["tables"] == META_TABLE_NAMES
+    assert m["meta_table"]["labels"]["화면명"] == "title"
+    assert m["meta_table"]["labels"]["ID"] == "screen_id"
+    assert "title" not in m["shapes"]
     assert m["shapes"]["detail_tables"] == [
         "상세표1", "상세표2", "상세표3", "상세표4", "상세표5"]
     assert m["table_columns"] == {"no": 0, "text": 1}
@@ -165,5 +204,8 @@ def test_default_template_mapping_is_buildable(tmp_path: Path):
     assert report["slides"] == 1
     slide = Presentation(str(out)).slides[0]
     by_name = {s.name: s for s in slide.shapes}
-    assert by_name["제목"].text_frame.text == "목록"
     assert by_name["문서제목"].text_frame.text == "화면설계서"
+    # 화면명은 상단 메타 표의 '화면명' 칸 자리에 얹힌 글자로 들어간다
+    from slide_layout import meta_slot_name
+    assert by_name[meta_slot_name("화면명")].text_frame.text == "목록"
+    assert by_name[meta_slot_name("ID")].text_frame.text == "SCR001"

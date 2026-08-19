@@ -8,7 +8,11 @@ from pathlib import Path
 
 import pytest
 from common import write_json
-from default_template import build_default_template
+from default_template import (
+    DEFAULT_LAYOUT_NAME,
+    build_default_template,
+    default_meta_table_labels,
+)
 from user_default import load_user_default, user_default_mapping
 
 
@@ -20,15 +24,19 @@ def _install(tmp_path: Path, **over) -> Path:
     cfg = {
         "template": "assets/default-template.pptx",
         "mode": "layout",
-        "layout": "화면",
-        "placeholders": {"title": 0, "screen_id": 1, "작성일": 10},
+        "layout": DEFAULT_LAYOUT_NAME,
+        "placeholders": {"screen_id": 1, "문서제목": 11, "쪽번호": 12},
         "shapes": {
-            "title": "제목",
             "screen_id": "화면ID",
             "image": "화면이미지",
-            "작성일": "작성일",
+            "문서제목": "문서제목",
+            "쪽번호": "쪽번호",
             "detail_tables": ["상세표1", "상세표2", "상세표3", "상세표4",
                               "상세표5"],
+        },
+        "meta_table": {
+            "tables": ["메타표1", "메타표2"],
+            "labels": default_meta_table_labels(),
         },
         "detail_tables": {"count": 5, "rows": 4},
         "table_columns": {"no": 0, "text": 1},
@@ -94,9 +102,12 @@ def test_mapping_is_a_usable_template_section(tmp_path: Path):
     m = user_default_mapping(cfg)
 
     assert m["mode"] == "layout"
-    assert m["layout"] == "화면"
+    assert m["layout"] == DEFAULT_LAYOUT_NAME
     assert Path(m["file"]) == cfg["template_path"]
-    assert m["placeholders"] == {"title": 0, "screen_id": 1, "작성일": 10}
+    assert m["placeholders"] == {"screen_id": 1, "문서제목": 11, "쪽번호": 12}
+    # meta_table도 그대로 넘어가야 상단 메타 표가 채워진다
+    assert m["meta_table"]["tables"] == ["메타표1", "메타표2"]
+    assert m["meta_table"]["labels"]["화면명"] == "title"
     assert m["detail_tables"] == {"count": 5, "rows": 4}
     assert m["content_area"] == [-12319, 337940, 9957099, 6331421]
     # 내부용 키가 새어 나가면 안 된다
@@ -127,7 +138,11 @@ def test_mapping_builds_end_to_end(tmp_path: Path):
     assert report["slides"] == 1
     from pptx import Presentation
     slide = Presentation(str(out)).slides[0]
+    from slide_layout import meta_slot_name
+
     by_name = {s.name: s for s in slide.shapes}
-    assert by_name["제목"].text_frame.text == "목록"
     assert by_name["화면ID"].text_frame.text == "SCR001"
+    # 화면명은 상단 메타 표의 '화면명' 칸 자리에 얹힌 글자로 들어간다
+    assert by_name[meta_slot_name("화면명")].text_frame.text == "목록"
+    # 원본 메타 표는 레이아웃에 그대로 있고 슬라이드에는 상세표만 있다
     assert len([s for s in slide.shapes if s.has_table]) == 5

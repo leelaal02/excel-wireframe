@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""슬라이드 복제. python-pptx에 복제 API가 없어 직접 구현한다.
+"""슬라이드 복제와 삭제. python-pptx에 둘 다 API가 없어 직접 구현한다.
 
 관계(rels)를 새 슬라이드에 재등록할 때 rId를 지정할 수 없고 자동 할당되므로,
 복제한 XML 안의 r:embed / r:id 등을 새 rId로 치환해야 한다. 이 재매핑을 빼면
@@ -73,3 +73,17 @@ def clone_slide(prs, src):
         spTree.append(el)
 
     return new
+
+
+def drop_slide(prs, slide) -> None:
+    """프레젠테이션에서 슬라이드를 제거한다.
+
+    sldIdLst 항목과 관계를 함께 지운다 — 한쪽만 지우면 파일이 깨진다.
+    복제가 모두 끝난 뒤에 원본을 지워야 한다 — 먼저 지우면 복제 소스가 사라진다.
+    """
+    xml_slides = prs.slides._sldIdLst
+    for sld_id in list(xml_slides):
+        if prs.part.rels[sld_id.rId].target_part is slide.part:
+            prs.part.drop_rel(sld_id.rId)
+            xml_slides.remove(sld_id)
+            return

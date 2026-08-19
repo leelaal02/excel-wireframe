@@ -141,3 +141,124 @@ def test_set_cell_text_keeps_paragraph_spacing_on_extra_lines(tmp_path: Path):
     paras = cell.text_frame.paragraphs
     assert len(paras) == 3
     assert all(p.line_spacing == 0.95 for p in paras)
+
+
+# --- 미입력 표시 ---
+
+def test_set_text_or_required_writes_the_value_when_there_is_one(tmp_path: Path):
+    from slide_fill import set_text_or_required
+
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    shape = find_shape(prs.slides[0], "제목 13")
+    assert set_text_or_required(shape, "이용기관 목록") is True
+    assert shape.text_frame.text == "이용기관 목록"
+
+
+def test_set_text_or_required_marks_missing_values_in_bold_red(tmp_path: Path):
+    """비워 두면 채워야 할 자리가 있다는 사실 자체가 산출물에서 사라진다."""
+    from pptx.dml.color import RGBColor
+    from slide_fill import INPUT_REQUIRED, set_text_or_required
+
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    shape = find_shape(prs.slides[0], "제목 13")
+    for empty in (None, "", "   "):
+        assert set_text_or_required(shape, empty) is False
+        assert shape.text_frame.text == INPUT_REQUIRED
+        run = shape.text_frame.paragraphs[0].runs[0]
+        assert run.font.bold is True
+        assert run.font.color.rgb == RGBColor(0xFF, 0x00, 0x00)
+
+
+def test_set_text_keeps_size_while_marking_required(tmp_path: Path):
+    """강조는 굵기와 색만 바꾼다 — 크기·글꼴은 템플릿 값을 지킨다."""
+    from slide_fill import set_text_or_required
+
+    prs = Presentation(str(make_template_pptx(tmp_path / "t.pptx")))
+    shape = find_shape(prs.slides[0], "제목 13")
+    shape.text_frame.paragraphs[0].runs[0].font.size = Pt(11)
+    set_text_or_required(shape, None)
+    assert shape.text_frame.paragraphs[0].runs[0].font.size == Pt(11)
+
+
+# --- 메타 표 위에 얹는 글자 자리 ---
+
+def _meta_slide(tmp_path: Path):
+    from default_template import DEFAULT_LAYOUT_NAME, build_default_template
+    from slide_layout import add_meta_text_slots, find_layout
+
+    prs = Presentation(str(build_default_template(tmp_path / "d.pptx")))
+    layout = find_layout(prs, DEFAULT_LAYOUT_NAME)
+    slide = prs.slides.add_slide(layout)
+    made = add_meta_text_slots(slide, layout, ["메타표1", "메타표2"],
+                               ["프로젝트명", "화면명", "ID", "알림여부"])
+    return slide, made
+
+
+def test_meta_slots_are_created_for_each_label(tmp_path: Path):
+    from slide_layout import meta_slot_name
+
+    slide, made = _meta_slide(tmp_path)
+    assert sorted(made) == sorted(["프로젝트명", "화면명", "ID", "알림여부"])
+    names = {s.name for s in slide.shapes}
+    for label in made:
+        assert meta_slot_name(label) in names
+    # 원본 표를 복제하지 않았다 — 슬라이드에 표가 없어야 한다
+    assert [s for s in slide.shapes if s.has_table] == []
+
+
+def test_meta_slot_sits_exactly_on_the_cell_right_of_its_label(tmp_path: Path):
+    from default_template import DEFAULT_LAYOUT_NAME, build_default_template
+    from slide_layout import add_meta_text_slots, find_layout, meta_slot_name
+
+    prs = Presentation(str(build_default_template(tmp_path / "d.pptx")))
+    layout = find_layout(prs, DEFAULT_LAYOUT_NAME)
+    slide = prs.slides.add_slide(layout)
+    add_meta_text_slots(slide, layout, ["메타표1", "메타표2"], ["화면명"])
+
+    frame = next(s for s in layout.shapes
+                 if s.has_table and len(s.table.columns) == 18)
+    table = frame.table
+    col = [table.cell(0, i).text for i in range(len(table.columns))].index("화면명") + 1
+    left = int(frame.left) + sum(int(table.columns[i].width) for i in range(col))
+
+    shp = next(s for s in slide.shapes if s.name == meta_slot_name("화면명"))
+    assert shp.left == left
+    assert shp.top == frame.top
+    assert shp.width == table.columns[col].width
+    assert shp.height == table.rows[0].height
+
+
+def test_meta_slot_carries_the_cells_own_text_format(tmp_path: Path):
+    """칸이 품고 있던 서식을 그대로 써야 값을 넣어도 표가 원래 모습으로 남는다."""
+    from pptx.util import Pt as _Pt
+    from slide_fill import set_text
+    from slide_layout import meta_slot_name
+
+    slide, _ = _meta_slide(tmp_path)
+    shp = next(s for s in slide.shapes if s.name == meta_slot_name("화면명"))
+    set_text(shp, "이용기관 목록")
+
+    run = shp.text_frame.paragraphs[0].runs[0]
+    assert run.font.size == _Pt(6.5)
+    assert run.font.bold is True
+
+
+def test_meta_slot_is_transparent(tmp_path: Path):
+    """원본 표가 비쳐 보여야 하므로 채움과 테두리가 없어야 한다."""
+    from pptx.enum.dml import MSO_FILL
+    from slide_layout import meta_slot_name
+
+    slide, _ = _meta_slide(tmp_path)
+    shp = next(s for s in slide.shapes if s.name == meta_slot_name("ID"))
+    assert shp.fill.type == MSO_FILL.BACKGROUND
+    assert shp.line.fill.type == MSO_FILL.BACKGROUND
+
+
+def test_meta_slots_skip_labels_that_are_not_in_the_table(tmp_path: Path):
+    from default_template import DEFAULT_LAYOUT_NAME, build_default_template
+    from slide_layout import add_meta_text_slots, find_layout
+
+    prs = Presentation(str(build_default_template(tmp_path / "d.pptx")))
+    layout = find_layout(prs, DEFAULT_LAYOUT_NAME)
+    slide = prs.slides.add_slide(layout)
+    assert add_meta_text_slots(slide, layout, ["메타표1"], ["없는라벨"]) == []

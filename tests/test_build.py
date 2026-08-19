@@ -82,7 +82,7 @@ def test_build_keeps_slide_size(tmp_path: Path):
     tpl = make_template_pptx(tmp_path / "t.pptx")
     out = tmp_path / "out.pptx"
     build(_screens(3), _mapping(tpl), tmp_path, out, Warnings())
-    assert Presentation(str(out)).slide_width == 9906000
+    assert Presentation(str(out)).slide_width == 9144000
 
 
 def test_build_splits_on_overflow(tmp_path: Path):
@@ -377,8 +377,13 @@ def test_build_layout_mode_without_image_shape_leaves_no_orphan_anchor(tmp_path:
     assert warns.to_list() == []
 
 
-def test_build_layout_mode_drops_empty_placeholders(tmp_path: Path):
-    """값이 없는 문서제목 placeholder가 산출물에 남으면 안 된다."""
+def test_build_marks_missing_values_as_input_required(tmp_path: Path):
+    """값이 없는 자리는 비우지 않고 "입력필요"를 빨강·굵게 남긴다.
+
+    비워 두면 채워야 할 자리가 있다는 사실 자체가 산출물에서 사라진다.
+    """
+    from pptx.dml.color import RGBColor
+
     tpl = _layout_template(tmp_path / "t.pptx")
     out = tmp_path / "out.pptx"
     screens = _screens(3)
@@ -386,7 +391,11 @@ def test_build_layout_mode_drops_empty_placeholders(tmp_path: Path):
     build(screens, _layout_mapping(tpl), tmp_path, out, Warnings())
 
     slide = Presentation(str(out)).slides[0]
-    assert "문서제목" not in [s.name for s in slide.shapes]
+    shp = next(s for s in slide.shapes if s.name == "문서제목")
+    assert shp.text_frame.text == "입력필요"
+    run = shp.text_frame.paragraphs[0].runs[0]
+    assert run.font.bold is True
+    assert run.font.color.rgb == RGBColor(0xFF, 0x00, 0x00)
 
 
 def test_build_layout_mode_fills_doc_title_from_meta(tmp_path: Path):
@@ -679,8 +688,18 @@ def _build_layout(tmp_path: Path, screens: dict, mapping: dict | None = None):
     return Presentation(str(out))
 
 
-def test_build_layout_mode_grows_tables_upward_for_long_details(tmp_path: Path):
-    """긴 상세가 들어가면 표가 위로 자란다. 아래 끝은 본문 영역에 붙어 있어야 한다."""
+def _image_slot_of(slide):
+    return next(s for s in slide.shapes if s.name == "화면이미지")
+
+
+def test_build_layout_mode_keeps_table_geometry_whatever_the_text_length(
+        tmp_path: Path):
+    """상세가 길든 짧든 표 자리가 같아야 한다.
+
+    예전엔 긴 상세가 들어오면 표를 위로 늘렸다. 그러면 화면마다 사진 자리가
+    달라져 슬라이드를 넘길 때 스크린샷 크기가 들쭉날쭉해진다. 이제 행 높이는
+    본문 영역에 대한 고정 비율이고, 넘치는 글은 글자 크기로 맞춘다.
+    """
     area_top, area_h = 337940, 6331421
     short = _build_layout(tmp_path / "a", _screens_with_desc(["짧게"] * 4))
     tall = _build_layout(tmp_path / "b", _screens_with_desc([LONG_DESC] * 4))
@@ -688,11 +707,14 @@ def test_build_layout_mode_grows_tables_upward_for_long_details(tmp_path: Path):
     s_tbl = _tables_of(short.slides[0])[0]
     t_tbl = _tables_of(tall.slides[0])[0]
 
-    assert t_tbl.height > s_tbl.height
-    assert t_tbl.top < s_tbl.top
-    # 두 경우 모두 아래 끝은 본문 영역 하단이다
+    assert (t_tbl.top, t_tbl.height) == (s_tbl.top, s_tbl.height)
+    # 아래 끝은 본문 영역 하단에 붙는다
     assert s_tbl.top + s_tbl.height == area_top + area_h
-    assert t_tbl.top + t_tbl.height == area_top + area_h
+
+    # 사진 자리도 같다 — 이것이 표를 고정하는 이유다
+    s_img, t_img = _image_slot_of(short.slides[0]), _image_slot_of(tall.slides[0])
+    assert (t_img.top, t_img.height) == (s_img.top, s_img.height)
+    assert (t_img.left, t_img.width) == (s_img.left, s_img.width)
 
 
 def test_build_layout_mode_keeps_tables_inside_the_slide(tmp_path: Path):
@@ -712,12 +734,8 @@ def test_build_layout_mode_short_details_keep_measured_heights(tmp_path: Path):
     assert tbl.top == 5253244
 
 
-def test_build_layout_mode_gives_each_page_its_own_height(tmp_path: Path):
-    """장마다 자기 내용에 맞는 높이를 쓴다.
-
-    전 장을 최악값으로 통일하면 긴 상세 하나가 모든 장의 표를 밀어 올려
-    스크린샷을 눌러 버린다.
-    """
+def test_build_layout_mode_gives_every_page_the_same_geometry(tmp_path: Path):
+    """장이 나뉘어도 표와 사진 자리가 장마다 똑같아야 한다."""
     descs = ["짧게"] * 40
     descs[25] = LONG_DESC          # 2장에만 긴 항목이 있다
     prs = _build_layout(tmp_path, _screens_with_desc(descs))
@@ -725,11 +743,12 @@ def test_build_layout_mode_gives_each_page_its_own_height(tmp_path: Path):
     assert len(prs.slides) == 2
     first = _tables_of(prs.slides[0])[0]
     second = _tables_of(prs.slides[1])[0]
-    # 1장은 짧은 상세뿐이라 실측 하한 그대로다
     assert [r.height for r in first.table.rows] == [382457, 268746, 496168, 268746]
-    # 2장만 긴 항목 때문에 자란다
-    assert second.height > first.height
-    assert second.top < first.top
+    assert [r.height for r in second.table.rows] == [382457, 268746, 496168, 268746]
+    assert (second.top, second.height) == (first.top, first.height)
+
+    a, b = _image_slot_of(prs.slides[0]), _image_slot_of(prs.slides[1])
+    assert (a.top, a.height, a.left, a.width) == (b.top, b.height, b.left, b.width)
 
 
 def test_build_layout_mode_bottom_aligns_every_page(tmp_path: Path):
@@ -770,7 +789,8 @@ def test_build_layout_mode_aligns_row_heights_across_tables(tmp_path: Path):
     base = [r.height for r in tables[0].table.rows]
     for t in tables[1:]:
         assert [r.height for r in t.table.rows] == base
-    assert base[1] > 268746        # 행 1이 자랐다
+    # 긴 항목이 섞여도 행은 자라지 않는다 — 글자 크기로 맞춘다
+    assert base == [382457, 268746, 496168, 268746]
 
 
 def test_build_layout_mode_shrinks_font_when_image_slot_would_vanish(tmp_path: Path):
@@ -872,3 +892,145 @@ def test_cli_out_file_is_taken_as_is(tmp_path: Path):
     assert target.exists()
     assert not (tmp_path / "납품용2.pptx").exists()
     assert not (tmp_path / "output" / "s.pptx").exists()
+
+
+# --- 상단 메타 표 채우기 ---
+
+def _default_tpl_mapping(tmp_path: Path) -> dict:
+    from default_template import build_default_template, default_template_mapping
+
+    path = build_default_template(tmp_path / "d.pptx")
+    return {
+        "version": 1,
+        "excel": {"layout": "sheet-per-screen"},
+        "template": default_template_mapping(path),
+        "options": {"detail_text_source": "desc", "clear_unused_slots": True},
+    }
+
+
+def _meta_value(slide, label):
+    """메타 표 위에 얹힌 '메타:{라벨}' 글자 자리의 값."""
+    from slide_layout import meta_slot_name
+    return next(s for s in slide.shapes
+                if s.name == meta_slot_name(label)).text_frame.text
+
+
+def test_build_fills_the_meta_table_from_screen_and_document(tmp_path: Path):
+    mapping = _default_tpl_mapping(tmp_path)
+    data = _screens(2)
+    data["meta"] = {"프로젝트명": "통합관리시스템", "문서제목": "화면설계서"}
+    out = tmp_path / "out.pptx"
+    build(data, mapping, tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    assert _meta_value(slide, "화면명") == "이용기관 목록"
+    assert _meta_value(slide, "ID") == "SCR001"
+    assert _meta_value(slide, "프로젝트명") == "통합관리시스템"
+    assert _meta_value(slide, "산출물명") == "화면설계서"
+
+
+def test_build_marks_unknown_meta_cells_as_input_required(tmp_path: Path):
+    from pptx.dml.color import RGBColor
+
+    mapping = _default_tpl_mapping(tmp_path)
+    out = tmp_path / "out.pptx"
+    build(_screens(2), mapping, tmp_path, out, Warnings())
+
+    from slide_layout import meta_slot_name
+
+    slide = Presentation(str(out)).slides[0]
+    assert _meta_value(slide, "버전") == "입력필요"
+    assert _meta_value(slide, "검토자") == "입력필요"
+    assert _meta_value(slide, "알림여부") == "입력필요"      # 메타표2 쪽
+
+    shp = next(s for s in slide.shapes if s.name == meta_slot_name("버전"))
+    run = shp.text_frame.paragraphs[0].runs[0]
+    assert run.font.bold is True
+    assert run.font.color.rgb == RGBColor(0xFF, 0x00, 0x00)
+
+
+def test_build_meta_table_prefers_screen_fields_over_document_meta(tmp_path: Path):
+    mapping = _default_tpl_mapping(tmp_path)
+    data = _screens(2)
+    data["meta"] = {"버전": "v1.0"}
+    data["screens"][0]["fields"] = {"버전": "v2.0"}
+    out = tmp_path / "out.pptx"
+    build(data, mapping, tmp_path, out, Warnings())
+
+    assert _meta_value(Presentation(str(out)).slides[0], "버전") == "v2.0"
+
+
+def test_build_leaves_the_layout_meta_table_untouched(tmp_path: Path):
+    """원본 표를 덮지 않는다. 슬라이드에 남는 표는 상세표뿐이다."""
+    mapping = _default_tpl_mapping(tmp_path)
+    mapping["template"]["shapes"].pop("detail_tables")   # 이름 없이 좌→우로 모으는 경로
+    out = tmp_path / "out.pptx"
+    build(_screens(3), mapping, tmp_path, out, Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    tables = [s for s in slide.shapes if s.has_table]
+    assert len(tables) == 5                       # 상세표만, 메타 표 복제본 없음
+    assert _meta_value(slide, "화면명") == "이용기관 목록"
+
+
+# --- 화면설명 요약 ---
+
+def test_build_uses_summaries_when_they_exist(tmp_path: Path):
+    """Excel 원문은 화면설계서에 그대로 싣기엔 길다. 요약본이 있으면 그것을 쓴다."""
+    from common import write_json
+
+    tpl = _layout_template(tmp_path / "t.pptx")
+    write_json(tmp_path / "summaries.json",
+               {"SCR001": {"1": "[저장] 기본정보 저장 · 검사 후 재조회"}})
+    out = tmp_path / "out.pptx"
+    build(_screens(2), _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    table = next(s for s in Presentation(str(out)).slides[0].shapes
+                 if s.name == "상세표1").table
+    assert table.cell(0, 1).text == "[저장] 기본정보 저장 · 검사 후 재조회"
+    assert table.cell(1, 1).text == "설명 2"      # 요약이 없는 항목은 원문 그대로
+
+
+def test_build_without_summaries_keeps_the_original_text(tmp_path: Path):
+    tpl = _layout_template(tmp_path / "t.pptx")
+    out = tmp_path / "out.pptx"
+    build(_screens(2), _layout_mapping(tpl), tmp_path, out, Warnings())
+
+    table = next(s for s in Presentation(str(out)).slides[0].shapes
+                 if s.name == "상세표1").table
+    assert table.cell(0, 1).text == "설명 1"
+
+
+def test_apply_summaries_does_not_mutate_the_caller_data(tmp_path: Path):
+    from build import apply_summaries
+    from common import write_json
+
+    write_json(tmp_path / "summaries.json", {"SCR001": {"1": "요약"}})
+    data = _screens(2)
+    got, n = apply_summaries(data, tmp_path, "desc")
+
+    assert n == 1
+    assert got["screens"][0]["details"][0]["desc"] == "요약"
+    assert data["screens"][0]["details"][0]["desc"] == "설명 1"
+
+
+def test_build_puts_the_image_at_the_top_of_its_slot(tmp_path: Path):
+    """사진은 자리 위쪽에 붙는다 — 장을 넘길 때 상단 기준선이 흔들리면 안 된다.
+
+    세로 가운데로 맞추면 짧은 이미지가 아래 상세표 쪽으로 내려앉아 위가 휑하게
+    빈다. 가로는 가운데다.
+    """
+    tpl = _layout_template(tmp_path / "t.pptx")
+    make_png(tmp_path / "images" / "SCR001.png", size=(1600, 400))  # 가로로 넓다
+    out = tmp_path / "out.pptx"
+    build(_screens(4, "images/SCR001.png"), _layout_mapping(tpl), tmp_path, out,
+          Warnings())
+
+    slide = Presentation(str(out)).slides[0]
+    pic = next(s for s in slide.shapes if s.shape_type == 13)
+    area_left, area_top, area_width, _ = _layout_mapping(tpl)["template"]["content_area"]
+
+    assert pic.top == area_top                      # 위에 붙는다
+    assert pic.height < _tables_of(slide)[0].top - area_top   # 자리를 다 채우진 않는다
+    # 가로는 가운데
+    assert abs((pic.left - area_left) - (area_width - pic.width - (pic.left - area_left))) <= 1

@@ -25,6 +25,7 @@ _MAPPING_KEYS = (
     "source_slide",
     "placeholders",
     "shapes",
+    "meta_table",
     "detail_tables",
     "table_columns",
     "content_area",

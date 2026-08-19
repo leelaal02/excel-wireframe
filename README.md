@@ -87,9 +87,12 @@ skills/excel-wireframe/
     ├── xlsx_meta.py         # 표지 시트에서 문서 단위 정보 추출
     ├── xlsx_images.py       # 삽입 이미지 추출 (openpyxl + zip 폴백)
     ├── extract.py           # [CLI] screens.json + images/
-    ├── slide_clone.py       # 슬라이드 복제 (XML deepcopy + rId 재매핑)
+    ├── slide_clone.py       # 슬라이드 복제·삭제 (XML deepcopy + rId 재매핑)
     ├── slide_layout.py      # 레이아웃 탐색, placeholder 상속·명명·정리, 본문 영역 분할
     ├── slide_fill.py        # 도형 텍스트 주입, 이미지 배치, 표 슬롯 채우기
+    ├── text_metrics.py      # 줄 수·넘침 계산 (순수 함수)
+    ├── image_split.py       # 긴 스크린샷 자동 분할
+    ├── user_default.py      # user-default.json 기본 템플릿 설정
     ├── verify.py            # 생성물 재파싱 검증
     └── build.py             # [CLI] PPT 생성, 넘침 분할
 ```

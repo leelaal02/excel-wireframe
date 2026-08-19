@@ -13,17 +13,45 @@ from common import resolve_template_path
 from pptx import Presentation
 from pptx_scan import scan_presentation
 from slide_fill import collect_tables
+from slide_layout import meta_slot_name
 
 
-def _title_texts(slide: dict, title_name: str | None) -> list[str]:
+def label_for(meta_cfg: dict | None, key: str) -> str | None:
+    """메타 표에서 이 값을 담는 라벨. `{"화면명": "title"}`을 거꾸로 찾는다."""
+    for label, value_key in ((meta_cfg or {}).get("labels") or {}).items():
+        if value_key == key:
+            return label
+    return None
+
+
+def _meta_slot_values(slide: dict, meta_cfg: dict | None, key: str) -> list[str]:
+    """메타 표 위에 얹힌 글자 자리에서 값을 모은다.
+
+    기본 템플릿은 화면명·화면ID를 도형이 아니라 상단 메타 표의 칸 자리에 넣는다.
+    그 자리를 안 보면 값이 들어갔는지 확인할 방법이 없다.
+    """
+    label = label_for(meta_cfg, key)
+    if not label:
+        return []
+    want = meta_slot_name(label)
+    return [sh["text"] for sh in slide["shapes"] if sh["name"] == want]
+
+
+def _title_texts(slide: dict, title_name: str | None,
+                 meta_cfg: dict | None = None) -> list[str]:
     """슬라이드에서 화면명 판단에 쓸 텍스트를 뽑는다.
 
-    제목 도형 이름이 지정되면 그 도형만 본다. 없으면(매핑이 제목을 지정하지
-    않으면) 어느 도형이든 검사하던 예전 방식으로 물러선다 — 크래시를 피하기
-    위함이지, 정확도를 위한 것은 아니다.
+    제목 도형 이름이 지정되면 그 도형을 보고, 메타 표가 화면명을 담으면 그
+    칸도 본다. 둘 다 없으면(매핑이 제목을 지정하지 않으면) 어느 도형이든
+    검사하던 예전 방식으로 물러선다 — 크래시를 피하기 위함이지, 정확도를
+    위한 것은 아니다.
     """
+    texts = []
     if title_name:
-        return [sh["text"] for sh in slide["shapes"] if sh["name"] == title_name]
+        texts += [sh["text"] for sh in slide["shapes"] if sh["name"] == title_name]
+    texts += _meta_slot_values(slide, meta_cfg, "title")
+    if title_name or texts:
+        return texts
     return [sh["text"] for sh in slide["shapes"] if sh["text"]]
 
 
@@ -42,7 +70,7 @@ def _matches_screen_name(text: str, screen_name: str) -> bool:
 
 
 def _slides_for_screen(slides: list[dict], title_name: str | None,
-                       screen_name: str) -> list[dict]:
+                       screen_name: str, meta_cfg: dict | None = None) -> list[dict]:
     """화면명이 제목(또는 대체 텍스트)과 정확히 일치하는 슬라이드를 모두 찾는다.
 
     분할된 화면은 '이름 (1/2)', '이름 (2/2)'처럼 슬라이드가 여러 장이므로
@@ -50,12 +78,13 @@ def _slides_for_screen(slides: list[dict], title_name: str | None,
     """
     return [
         s for s in slides
-        if any(_matches_screen_name(t, screen_name) for t in _title_texts(s, title_name))
+        if any(_matches_screen_name(t, screen_name)
+               for t in _title_texts(s, title_name, meta_cfg))
     ]
 
 
-def _slides_by_screen_id(slides: list[dict], id_name: str,
-                         screen_id: str) -> list[dict]:
+def _slides_by_screen_id(slides: list[dict], id_name: str | None,
+                         screen_id: str, meta_cfg: dict | None = None) -> list[dict]:
     """화면ID 도형에 이 화면의 ID가 찍힌 슬라이드를 모두 찾는다.
 
     분할된 화면은 장마다 같은 ID를 달고 나오므로 여러 장이 잡히는 게 정상이다.
@@ -64,6 +93,7 @@ def _slides_by_screen_id(slides: list[dict], id_name: str,
         s for s in slides
         if any(sh["name"] == id_name and sh["text"].strip() == screen_id
                for sh in s["shapes"])
+        or screen_id in [v.strip() for v in _meta_slot_values(s, meta_cfg, "screen_id")]
     ]
 
 
@@ -83,6 +113,7 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
 
     title_name = mapping.get("template", {}).get("shapes", {}).get("title")
     id_name = mapping.get("template", {}).get("shapes", {}).get("screen_id")
+    meta_cfg = mapping.get("template", {}).get("meta_table")
     screens = screens_data.get("screens", [])
 
     def slides_of(scr: dict) -> list[dict]:
@@ -100,11 +131,11 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
         '화면명 반영' 검사는 이 함수를 쓰지 않는다. 그쪽은 제목에 화면명이
         들어갔는지를 보는 검사라 이름으로 찾는 것이 곧 검사 내용이다.
         """
-        if id_name and scr.get("id"):
-            found = _slides_by_screen_id(slides, id_name, scr["id"])
+        if (id_name or meta_cfg) and scr.get("id"):
+            found = _slides_by_screen_id(slides, id_name, scr["id"], meta_cfg)
             if found:
                 return found
-        return _slides_for_screen(slides, title_name, scr["name"])
+        return _slides_for_screen(slides, title_name, scr["name"], meta_cfg)
 
     # expected_slides는 screens_data 자체에서 파생되므로, 화면이 통째로 0개면
     # 슬라이드 수 검사도 "기대 0장, 실제 0장"으로 공허하게 통과하고 나머지
@@ -123,7 +154,7 @@ def verify_output(out_path: Path, screens_data: dict, mapping: dict,
 
     missing_titles = [
         scr["name"] for scr in screens
-        if not _slides_for_screen(slides, title_name, scr["name"])
+        if not _slides_for_screen(slides, title_name, scr["name"], meta_cfg)
     ]
     checks.append(
         {

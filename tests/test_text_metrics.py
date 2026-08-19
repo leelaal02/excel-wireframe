@@ -1,4 +1,4 @@
-from text_metrics import EMU_PER_PT, plan_row_heights, row_height, text_lines
+from text_metrics import text_lines
 
 # 기본 서식의 설명 칸 폭(EMU). content_area 폭 9957099를 표 5개로 나누고
 # 번호 칸과 좌우 여백을 뺀 값이다. 5.03cm 남짓이고 7pt 전각이 한 줄에 20자,
@@ -45,83 +45,6 @@ def test_text_lines_shrinks_with_smaller_font():
     long = "가" * 69
     assert text_lines(long, DESC_W, 7.0) == 4
     assert text_lines(long, DESC_W, 6.0) == 3
-
-
-def test_row_height_grows_with_lines():
-    from text_metrics import LINE_SPACING
-    one = row_height(1, 7.0)
-    two = row_height(2, 7.0)
-    assert two - one == int(7.0 * LINE_SPACING * EMU_PER_PT)
-
-
-def test_row_height_includes_margins():
-    from text_metrics import LINE_SPACING
-    assert row_height(1, 7.0, margin_top=9525, margin_bottom=0) == \
-        int(7.0 * LINE_SPACING * EMU_PER_PT) + 9525
-
-
-def test_plan_row_heights_returns_one_height_per_row():
-    """표 다섯 개가 나란히 놓이므로 행 높이는 표를 가로질러 하나로 통일된다."""
-    pages = [["짧게"] * 20]
-    heights = plan_row_heights(pages, 4, DESC_W, 7.0, [100, 200, 300, 400])
-    assert len(heights) == 4
-
-
-def test_plan_row_heights_respects_floors():
-    """계산값이 실측 하한보다 작으면 하한이 이긴다."""
-    floors = [382457, 268746, 496168, 268746]
-    heights = plan_row_heights([["짧게"] * 20], 4, DESC_W, 7.0, floors)
-    assert heights == floors
-
-
-def test_plan_row_heights_grows_for_long_text():
-    floors = [382457, 268746, 496168, 268746]
-    texts = ["짧게"] * 20
-    texts[1] = "가" * 300           # 슬롯 1 -> 표 0, 행 1
-    heights = plan_row_heights([texts], 4, DESC_W, 7.0, floors)
-    assert heights[1] > floors[1]
-    assert heights[0] == floors[0]  # 다른 행은 그대로
-
-
-def test_plan_row_heights_takes_max_across_tables():
-    """같은 행 인덱스면 표가 달라도 가장 큰 것에 맞춘다."""
-    floors = [100, 100, 100, 100]
-    texts = ["짧게"] * 20
-    texts[13] = "가" * 300          # 슬롯 13 -> 표 3, 행 1
-    heights = plan_row_heights([texts], 4, DESC_W, 7.0, floors)
-    assert heights[1] > heights[0]
-
-
-def test_plan_row_heights_takes_max_across_pages():
-    """한 화면의 모든 장이 같은 표 높이를 쓴다. 최댓값이 이겨야 한다."""
-    floors = [100, 100, 100, 100]
-    short = ["짧게"] * 20
-    long = list(short)
-    long[0] = "가" * 300
-    one = plan_row_heights([short], 4, DESC_W, 7.0, floors)
-    both = plan_row_heights([short, long], 4, DESC_W, 7.0, floors)
-    assert both[0] > one[0]
-
-
-def test_plan_row_heights_handles_partial_page():
-    """마지막 장은 슬롯을 다 채우지 못한다. 빈 슬롯이 있어도 터지지 않는다."""
-    floors = [100, 100, 100, 100]
-    heights = plan_row_heights([["하나", "둘"]], 4, DESC_W, 7.0, floors)
-    assert len(heights) == 4
-    assert all(h >= 100 for h in heights)
-
-
-def test_plan_row_heights_handles_empty_page():
-    floors = [100, 100, 100, 100]
-    assert plan_row_heights([[]], 4, DESC_W, 7.0, floors) == floors
-
-
-def test_plan_row_heights_shrinks_with_smaller_font():
-    floors = [100, 100, 100, 100]
-    texts = ["가" * 200] * 20
-    big = plan_row_heights([texts], 4, DESC_W, 7.0, floors)
-    small = plan_row_heights([texts], 4, DESC_W, 6.0, floors)
-    assert sum(small) < sum(big)
 
 
 def test_fits_lines_counts_what_a_row_holds():

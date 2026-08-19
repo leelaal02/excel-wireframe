@@ -96,6 +96,106 @@ def inherit_placeholders(slide, layout) -> list[int]:
     return added
 
 
+META_SLOT_PREFIX = "메타:"
+
+
+def meta_slot_name(label: str) -> str:
+    """라벨에 대응하는 메타 값 자리의 도형 이름."""
+    return META_SLOT_PREFIX + label
+
+
+def _cell_boxes(frame):
+    """표 안 각 셀의 (행, 열) → (left, top, width, height)."""
+    left0, top0 = int(frame.left or 0), int(frame.top or 0)
+    table = frame.table
+    widths = [int(c.width or 0) for c in table.columns]
+    heights = [int(r.height or 0) for r in table.rows]
+    boxes = {}
+    top = top0
+    for r, h in enumerate(heights):
+        left = left0
+        for c, w in enumerate(widths):
+            boxes[(r, c)] = (left, top, w, h)
+            left += w
+        top += h
+    return boxes
+
+
+def add_meta_text_slots(slide, layout, table_names, labels) -> list[str]:
+    """레이아웃 메타 표의 라벨 오른쪽 칸 자리에 빈 글자 자리를 얹는다.
+
+    레이아웃의 표는 배경으로 비칠 뿐 슬라이드의 도형이 아니라 값을 쓸 수 없다
+    (PowerPoint는 placeholder만 물려준다). 표를 통째로 복제해 덮는 방법도 있지만
+    그러면 표가 두 겹이 되어 원본을 클릭할 수 없고 테두리가 두 번 그려진다.
+    **원본 표는 그대로 두고 값이 들어갈 칸 자리에 글자만 올린다.**
+
+    글자 서식은 그 칸이 품고 있던 것(런의 rPr, 없으면 endParaRPr)과 문단 속성을
+    그대로 복사한다 — 크기·굵기·색·글꼴·정렬이 원본과 같아야 값을 넣어도 표가
+    원래 모습으로 남는다.
+
+    만든 자리의 라벨 목록을 돌려준다.
+    """
+    wanted = set(labels or ())
+    names = list(table_names or ())
+    tables = [shp for shp in layout.shapes if shp.has_table]
+    tables.sort(key=lambda s: (int(s.top or 0), int(s.left or 0)))
+    if names:
+        tables = tables[:len(names)]
+
+    made: list[str] = []
+    for frame in tables:
+        table = frame.table
+        boxes = _cell_boxes(frame)
+        col_count = len(table.columns)
+        for r in range(len(table.rows)):
+            for c in range(col_count - 1):
+                label = table.cell(r, c).text.strip()
+                if label not in wanted or label in made:
+                    continue
+                _add_text_slot(slide, boxes[(r, c + 1)],
+                               meta_slot_name(label), table.cell(r, c + 1))
+                made.append(label)
+    return made
+
+
+def _add_text_slot(slide, box, name: str, source_cell):
+    """칸 자리에 글자만 담을 투명한 텍스트 상자를 만든다."""
+    left, top, width, height = box
+    shp = slide.shapes.add_textbox(Emu(left), Emu(top), Emu(width), Emu(height))
+    shp.name = name
+    shp.fill.background()
+    shp.line.fill.background()
+
+    tf = shp.text_frame
+    # 원본 셀은 넘치는 글자를 옆으로 흘린다(horzOverflow="overflow"). 줄바꿈을
+    # 켜면 한 줄짜리 칸에서 글이 아래로 삐져나가므로 같은 동작을 따른다.
+    tf.word_wrap = False
+    tf.margin_left = source_cell.margin_left
+    tf.margin_right = source_cell.margin_right
+    tf.margin_top = Emu(0)
+    tf.margin_bottom = Emu(0)
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+
+    src_p = source_cell.text_frame.paragraphs[0]._p
+    p = tf.paragraphs[0]._p
+    pPr = src_p.find("{%s}pPr" % A_NS)
+    if pPr is not None:
+        p.insert(0, copy.deepcopy(pPr))
+    # 칸이 품고 있는 글자 서식을 그대로 옮긴다. 빈 칸은 그것을 endParaRPr에
+    # 담고 있다 — PowerPoint가 "다음에 칠 글자의 서식"으로 저장해 두는 자리다.
+    src_rPr = src_p.find(".//{%s}rPr" % A_NS)
+    if src_rPr is None:
+        src_rPr = src_p.find("{%s}endParaRPr" % A_NS)
+    if src_rPr is not None:
+        end = p.find("{%s}endParaRPr" % A_NS)
+        if end is not None:
+            p.remove(end)
+        keep = copy.deepcopy(src_rPr)
+        keep.tag = "{%s}endParaRPr" % A_NS
+        p.append(keep)
+    return shp
+
+
 def name_placeholders(slide, placeholders_cfg, shapes_cfg, warns, screen_id) -> None:
     """placeholder에 mapping이 정한 이름을 붙인다.
 
@@ -115,9 +215,16 @@ def name_placeholders(slide, placeholders_cfg, shapes_cfg, warns, screen_id) -> 
             ph.name = name
 
 
-def _has_field(shape) -> bool:
-    """쪽번호처럼 자동 필드를 담은 도형인가."""
+def has_auto_field(shape) -> bool:
+    """쪽번호처럼 자동 필드를 담은 도형인가.
+
+    이런 자리는 PowerPoint가 값을 그린다. 글자를 쓰면 필드가 사라지므로
+    채우기 대상에서 뺀다.
+    """
     return shape._element.find(".//{%s}fld" % A_NS) is not None
+
+
+_has_field = has_auto_field
 
 
 def drop_empty_placeholders(slide) -> int:
@@ -140,6 +247,10 @@ def drop_empty_placeholders(slide) -> int:
 # --- 실측 상수 (원본 화면설계서 화면 페이지) ---
 DEFAULT_CONTENT_AREA = (-12319, 337940, 9957099, 6331421)
 ROW_HEIGHTS = [382457, 268746, 496168, 268746]
+# ROW_HEIGHTS를 잰 본문 영역의 높이. 행높이를 이 값 대비 비율로 환산해 다른
+# 크기의 슬라이드에도 같은 모양으로 옮긴다 — DEFAULT_CONTENT_AREA의 높이와 같은
+# 값이어야 원본 화면설계서와 똑같은 표가 나온다.
+MEASURED_CONTENT_HEIGHT = DEFAULT_CONTENT_AREA[3]
 COL_WIDTH_RATIO = (160215, 1810920)
 MIN_IMAGE_HEIGHT_EMU = EMU_PER_INCH  # 1인치
 TEXT_CELL_MARGIN = CELL_MARGIN       # 설명 칸 여백. 계산과 서식이 같은 값을 쓴다
@@ -174,6 +285,20 @@ def measured_row_heights(rows_per_table: int) -> list[int]:
     return ROW_HEIGHTS + tail
 
 
+def ratio_row_heights(area_height: int, rows_per_table: int) -> list[int]:
+    """본문 영역 높이에 비례한 행높이. 사진·표 자리를 고정하는 기준이다.
+
+    실측 행높이를 잰 본문(`MEASURED_CONTENT_HEIGHT`)과의 비로 환산한다. 그래서
+    슬라이드 크기나 레이아웃이 달라져도 표가 본문에서 차지하는 몫이 같고, 상세가
+    길든 짧든 모든 화면에서 사진과 표가 같은 자리에 온다 — 내용에 따라 표를 늘리면
+    화면마다 사진 크기가 달라진다.
+
+    기준 본문(6264697)에서는 실측값과 정확히 같다.
+    """
+    scale = area_height / MEASURED_CONTENT_HEIGHT
+    return [int(h * scale) for h in measured_row_heights(rows_per_table)]
+
+
 def detail_text_width(area_width: int, table_count: int) -> int:
     """설명 칸에서 글자가 실제로 놓이는 폭. 줄 수 계산의 기준이다.
 
@@ -193,13 +318,14 @@ def split_content_area(area, table_count: int, rows_per_table: int,
     표는 아래쪽에 붙이고 폭을 균등 분할한다. 원본의 표 간격은 0.01인치라
     사실상 붙어 있으므로 간격을 두지 않는다. 이미지는 위쪽 나머지를 전부 쓴다.
 
-    row_heights를 주면 그 높이로 표를 잡는다. 상세 텍스트가 길어 행이 자랄 때
-    표를 미리 위로 늘려 두는 용도다 — 표의 아래 끝은 그대로 두고 상단만 올라가며,
-    이미지 자리가 그만큼 줄어든다. 안 주면 실측 고정 높이를 쓴다.
+    row_heights를 주면 그 높이로 표를 잡는다. 표의 아래 끝은 그대로 두고 상단만
+    올라가며, 이미지 자리가 그만큼 줄어든다. 안 주면 본문 높이에 비례한 고정
+    높이(`ratio_row_heights`)를 쓴다 — 모든 화면에서 사진과 표를 같은 자리에
+    두려면 이 경로를 타야 한다.
     """
     left, top, width, height = area
     heights = (list(row_heights) if row_heights
-               else measured_row_heights(rows_per_table))
+               else ratio_row_heights(height, rows_per_table))
     table_h = sum(heights)
     table_top = top + height - table_h
     image_h = table_top - top
@@ -213,7 +339,7 @@ def split_content_area(area, table_count: int, rows_per_table: int,
                    MIN_IMAGE_HEIGHT_EMU / EMU_PER_INCH)
             )
         max_rows = 0
-        while sum(measured_row_heights(max_rows + 1)) <= height - MIN_IMAGE_HEIGHT_EMU:
+        while sum(ratio_row_heights(height, max_rows + 1)) <= height - MIN_IMAGE_HEIGHT_EMU:
             max_rows += 1
         raise ValueError(
             "rows_per_table=%d면 이미지 자리 높이가 %.2fin로 너무 작아집니다"
@@ -254,15 +380,22 @@ def add_image_anchor(slide, box, name: str):
     return shp
 
 
-def _scheme_fill(parent, tag: str, scheme):
-    """schemeClr 채움 요소를 parent 아래에 만든다. (val, lumMod, lumOff)."""
+def scheme_fill(parent, tag: str, scheme):
+    """schemeClr 채움 요소를 parent 아래에 만든다.
+
+    scheme은 `(val, lumMod, lumOff)`이고 밝기 보정은 None으로 뺄 수 있다 —
+    메타 표의 값 칸(`bg1` lumMod만)처럼 한쪽만 쓰는 색이 있다.
+    """
     val, lum_mod, lum_off = scheme
     fill = SubElement(parent, "{%s}%s" % (A_NS, tag))
     clr = SubElement(fill, "{%s}schemeClr" % A_NS)
     clr.set("val", val)
-    SubElement(clr, "{%s}lumMod" % A_NS).set("val", str(lum_mod))
-    SubElement(clr, "{%s}lumOff" % A_NS).set("val", str(lum_off))
+    if lum_mod is not None:
+        SubElement(clr, "{%s}lumMod" % A_NS).set("val", str(lum_mod))
+    if lum_off is not None:
+        SubElement(clr, "{%s}lumOff" % A_NS).set("val", str(lum_off))
     return fill
+
 
 
 def _set_table_style(table, style_id: str) -> None:
@@ -275,12 +408,15 @@ def _set_table_style(table, style_id: str) -> None:
     SubElement(tbl_pr, "{%s}tableStyleId" % A_NS).text = style_id
 
 
-def _draw_cell_edges(cell, shaded: bool) -> None:
-    """셀에 4방향 테두리를, 번호 칸이면 배경까지 그린다.
+def draw_cell_edges(cell, fill=None, border=BORDER_SCHEME,
+                    width: int = BORDER_WIDTH) -> None:
+    """셀에 4방향 테두리를 그리고, fill을 주면 배경까지 칠한다.
 
     tcPr의 자식 순서는 스키마가 정한다 — 테두리(lnL/lnR/lnT/lnB)가 먼저이고
     채움이 그 뒤다. 순서를 어기면 PowerPoint가 파일을 열지 못한다.
     python-pptx에 셀 테두리 API가 없어 XML을 직접 쓴다.
+
+    상세표와 상단 메타 표가 테두리 두께·색이 달라 인자로 뺐다.
     """
     tc = cell._tc
     pr = tc.find("{%s}tcPr" % A_NS)
@@ -292,16 +428,21 @@ def _draw_cell_edges(cell, shaded: bool) -> None:
 
     for edge in _EDGES:
         ln = SubElement(pr, "{%s}%s" % (A_NS, edge))
-        ln.set("w", str(BORDER_WIDTH))
+        ln.set("w", str(width))
         ln.set("cap", "flat")
         ln.set("cmpd", "sng")
         ln.set("algn", "ctr")
-        _scheme_fill(ln, "solidFill", BORDER_SCHEME)
+        scheme_fill(ln, "solidFill", border)
         SubElement(ln, "{%s}prstDash" % A_NS).set("val", "solid")
         SubElement(ln, "{%s}round" % A_NS)
 
-    if shaded:
-        _scheme_fill(pr, "solidFill", NO_COL_SCHEME)
+    if fill is not None:
+        scheme_fill(pr, "solidFill", fill)
+
+
+def _draw_cell_edges(cell, shaded: bool) -> None:
+    """상세표용 짧은 이름. 번호 칸이면 배경을 칠한다."""
+    draw_cell_edges(cell, NO_COL_SCHEME if shaded else None)
 
 
 def _format_cell(cell, size_pt, bold, align, anchor, margin, margin_bottom,

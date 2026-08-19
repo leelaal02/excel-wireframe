@@ -5,7 +5,6 @@
 5px인데 헤더 아래 틈만 6px이어서, 하필 그 틈이 유일한 절단 후보가 됐다.
 """
 import numpy as np
-import pytest
 from PIL import Image
 
 from image_split import find_quiet_bands, plan_cuts
@@ -66,3 +65,33 @@ def test_prefers_band_nearest_target_height():
     """
     cuts = plan_cuts(2000, 900, [(500, 514), (890, 894)], [])
     assert cuts[0][1] == 892
+
+
+def test_slice_pads_pieces_to_a_uniform_height(tmp_path):
+    """조각마다 가로세로 비가 다르면 슬라이드마다 사진 크기가 달라진다.
+
+    아래에 여백을 덧대 비를 맞춘다 — 잘라 내는 것이 아니므로 내용은 그대로다.
+    """
+    from image_split import slice_image
+    from PIL import Image
+
+    src = tmp_path / "s.png"
+    make_image([("c", 1000)]).save(src)
+    cuts = [(0, 499, 2), (500, 799, 1)]      # 500px, 300px
+
+    pieces = slice_image(src, cuts, tmp_path / "out", "s")
+    sizes = [Image.open(p).size for p in pieces]
+    assert sizes[0] == sizes[1]
+    assert sizes[0][1] == 500                 # 가장 큰 조각에 맞춘다
+
+
+def test_slice_can_keep_original_piece_heights(tmp_path):
+    from image_split import slice_image
+    from PIL import Image
+
+    src = tmp_path / "s.png"
+    make_image([("c", 1000)]).save(src)
+    cuts = [(0, 499, 2), (500, 799, 1)]
+
+    pieces = slice_image(src, cuts, tmp_path / "out", "s", uniform=False)
+    assert [Image.open(p).size[1] for p in pieces] == [500, 300]

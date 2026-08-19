@@ -11,8 +11,8 @@ SAMPLE_PPTX = ROOT / "화면설계서_저작권_발행기관.정산처_발행기
 def test_scan_reports_slide_size_and_shapes(tmp_path: Path):
     pptx = make_template_pptx(tmp_path / "t.pptx")
     report = scan_presentation(pptx)
-    assert report["slide_width"] == 9906000
-    assert round(report["slide_size_in"][0], 2) == 10.83
+    assert report["slide_width"] == 9144000
+    assert round(report["slide_size_in"][0], 2) == 10.0
     slide = report["slides"][0]
     names = [s["name"] for s in slide["shapes"]]
     assert "제목 13" in names
@@ -50,8 +50,10 @@ def test_scan_layouts_lists_placeholders(tmp_path: Path):
     assert DEFAULT_LAYOUT_NAME in names
     target = next(lay for lay in layouts if lay["name"] == DEFAULT_LAYOUT_NAME)
     idxs = [ph["idx"] for ph in target["placeholders"]]
-    assert {0, 1, 10, 11, 12} <= set(idxs)
-    assert any(s["name"] == "상단띠" for s in target["shapes"])
+    # 화면명·작성일은 placeholder가 아니라 상단 메타 표가 담당한다
+    assert set(idxs) == {1, 11, 12}
+    shape_names = {s["name"] for s in target["shapes"]}
+    assert {"메타표1", "메타표2", "본문박스", "하단바"} <= shape_names
 
 
 def test_suggest_content_area_avoids_header_and_footer(tmp_path: Path):
@@ -60,11 +62,11 @@ def test_suggest_content_area_avoids_header_and_footer(tmp_path: Path):
     layout_info = next(lay for lay in scan_layouts(path)
                        if lay["name"] == DEFAULT_LAYOUT_NAME)
 
-    area = suggest_content_area(layout_info, 9906000, 6858000)
+    area = suggest_content_area(layout_info, 9144000, 6858000)
     left, top, width, height = area
 
-    # 구분선(top 404664 + height 216024 = 620688) 아래에서 시작한다
-    assert top >= 620688
+    # 메타표2(top 195617 + height 116632 = 312249) 아래에서 시작한다
+    assert top >= 312249
     # 하단바(top 6716266) 위에서 끝난다
     assert top + height <= 6716266
     assert width > 0 and height > 0
