@@ -6,9 +6,19 @@ Excel로 작성된 화면설계서를 PowerPoint 화면설계서로 자동 생�
 
 ## 설치
 
+이 저장소는 스킬을 **개발하는** 곳이라 소스를 `skills/excel-wireframe/`에 둔다.
+Claude Code가 스킬을 **읽는** 곳은 `.claude/skills/`다 — 저장소 경로는 자동으로
+인식되지 않으므로 복사해야 걸린다.
+
 ```bash
+# 전역 설치 — 모든 프로젝트에서 쓴다
 cp -r skills/excel-wireframe ~/.claude/skills/
+
+# 특정 프로젝트에서만 쓰려면
+cp -r skills/excel-wireframe <프로젝트>/.claude/skills/
 ```
+
+복사본은 저장소와 따로 논다. 스크립트를 고쳤으면 다시 복사해야 설치본에 반영된다.
 
 의존성:
 
@@ -33,7 +43,9 @@ python $S/analyze.py --excel 입력.xlsx --template 템플릿.pptx --output outp
 # 3. 추출
 python $S/extract.py --excel 입력.xlsx --output output
 
-# 4. 생성 (이름은 원본 Excel 파일명, 같은 이름이 있으면 뒤에 2, 3이 붙는다)
+# 4. 상세를 output/.work/summaries.json으로 줄이기 — Claude가 판단하는 단계 (생략 가능)
+
+# 5. 생성 (이름은 원본 Excel 파일명, 같은 이름이 있으면 뒤에 2, 3이 붙는다)
 python $S/build.py --output output
 #   → output/입력.pptx
 
@@ -42,9 +54,9 @@ python $S/build.py --output output --out-file 납품용.pptx
 ```
 
 `--output`은 결과물 폴더다. 여기엔 pptx만 놓인다. 중간 산출물
-(`structure-report.json`, `mapping.json`, `screens.json`, `default-template.pptx`,
-`images/`)은 그 안의 `.work/`에 모인다 — 폴더째 지우면 이 Excel의 산출물이 전부
-사라진다.
+(`structure-report.json`, `mapping.json`, `screens.json`, `summaries.json`,
+`default-template.pptx`, `images/`)은 그 안의 `.work/`에 모인다 — 폴더째 지우면
+이 Excel의 산출물이 전부 사라진다.
 
 ```
 output/
@@ -67,6 +79,12 @@ output/
 
 **슬라이드를 만드는 방법이 두 가지다.** `clone` 모드는 템플릿의 예시 슬라이드를 복제하고, `layout` 모드는 레이아웃으로 빈 슬라이드를 만든 뒤 이미지 자리와 상세표를 그 자리에서 그린다. 값을 채우는 코드는 둘이 공유한다 — `layout` 모드가 새로 만든 자리에 매핑이 정한 이름을 붙이기 때문이다. 기본 템플릿은 `layout` 모드를 쓴다.
 
+**사진과 표 자리는 모든 화면에서 같다.** 본문 영역 높이에 대한 고정 비율이다(`slide_layout.ratio_row_heights`). 내용이 길다고 표를 늘리지 않는다 — 늘리면 화면마다 사진 크기가 달라져 장을 넘길 때 상단 기준선이 흔들린다. 넘치면 글자를 줄이고(7 → 6.5 → 6pt), 그래도 넘치면 `text-overflow` 경고로 알린다.
+
+**긴 상세는 `summaries.json`으로 줄여 넣는다.** Excel 원문은 화면설계서에 그대로 싣기엔 길다(실제 샘플 평균 94자). 추출과 생성 사이에서 Claude가 요소명 + 개조식 한 줄로 줄여 `.work/summaries.json`에 남기면 `build.py`가 반영한다. `{"화면ID": {"상세번호": "요약문"}}` 꼴이고, 파일이 없으면 원문을 그대로 쓴다. 상세번호는 Excel 값이라 재추출해도 키가 유지된다.
+
+**값이 없는 자리는 비우지 않는다.** 빨강·굵게 `입력필요`를 남긴다 — 빈 칸은 채우는 걸 잊은 건지 원래 값이 없는 건지 구별되지 않는다. 쪽번호 같은 자동 필드만 예외다.
+
 **화면 단위로 예외를 격리한다.** 화면 40개 중 3개가 실패해도 나머지는 완성되고, 실패한 화면은 `[생성 실패]` 표시로 남는다.
 
 **생성물을 재파싱해 검증한다.** 파일이 만들어졌다는 사실만으로는 부족하다 — 도형 이름이 안 맞거나 관계가 깨지면 파일은 생기지만 내용이 비어 있을 수 있다.
@@ -77,6 +95,9 @@ output/
 skills/excel-wireframe/
 ├── SKILL.md                      # Claude가 읽는 절차서
 ├── references/mapping-schema.md  # mapping.json / screens.json 레퍼런스
+├── user-default.example.json     # 조직 기본 템플릿 경로 설정의 예시
+├── user-default.json             # 실제 설정 (gitignore — 남의 저작권 pptx를 가리킨다)
+├── assets/                       # 설정이 가리키는 템플릿 사본 (gitignore)
 └── scripts/
     ├── common.py            # UTF-8 stdio, JSON, 경고 수집, EMU 상수
     ├── xlsx_scan.py         # Excel 구조 스캔
@@ -88,7 +109,8 @@ skills/excel-wireframe/
     ├── xlsx_images.py       # 삽입 이미지 추출 (openpyxl + zip 폴백)
     ├── extract.py           # [CLI] screens.json + images/
     ├── slide_clone.py       # 슬라이드 복제·삭제 (XML deepcopy + rId 재매핑)
-    ├── slide_layout.py      # 레이아웃 탐색, placeholder 상속·명명·정리, 본문 영역 분할
+    ├── slide_layout.py      # 레이아웃 탐색, placeholder 상속·명명·정리, 메타 표 자리,
+    │                        #   본문 영역 분할 (행 높이·글자 폭의 단일 출처)
     ├── slide_fill.py        # 도형 텍스트 주입, 이미지 배치, 표 슬롯 채우기
     ├── text_metrics.py      # 줄 수·넘침 계산 (순수 함수)
     ├── image_split.py       # 긴 스크린샷 자동 분할
@@ -109,6 +131,26 @@ skills/excel-wireframe/
 
 **표지 시트의 문서 정보를 반영한다.** 프로젝트명·작성일 같은 값을 읽어 `meta`에 담고, `template.shapes`에 같은 이름의 도형이 있으면 채운다. 화면별 `fields`가 문서 `meta`보다 우선한다.
 
+**기본 템플릿의 상단은 메타 정보 표다.** 단색 띠가 아니라 프로젝트명·산출물명·화면명·ID·버전·작성자·검토자·작성일·수정일·네비게이션·화면유형·알림여부를 담는 두 개의 표(`메타표1`, `메타표2`)다. 레이아웃 위의 표는 슬라이드로 상속되지 않으므로(PowerPoint는 placeholder만 물려준다) 표를 복제해 덮지 않고 `slide_layout.add_meta_text_slots`로 칸 자리에 글자만 올린다 — 복제하면 표가 두 겹이 되어 원본을 클릭할 수 없고 테두리가 두 번 그려진다.
+
+**조직 템플릿을 기본으로 둘 수 있다.** 스킬 디렉토리에 `user-default.json`을 두면 `--template` 없이 실행할 때 거기 적힌 템플릿과 레이아웃을 쓴다. 설정이 없을 때만 `default_template.py`가 기본 템플릿을 만든다. 남의 저작권 표기가 박힌 실물 템플릿을 저장소에 담을 수 없어서 생긴 우회로다 — 형식은 `user-default.example.json` 참고.
+
+## 경고 코드
+
+한 화면이 실패해도 나머지는 완성하고, 실패는 경고로 남긴다. 코드는 아홉 개뿐이다.
+
+| 코드 | 뜻 |
+|---|---|
+| `no-image` | 화면에 연결된 이미지를 찾지 못했다 |
+| `no-detail` | 상세 표 헤더를 찾지 못했다 |
+| `text-overflow` | 글자를 줄여도 설명이 셀을 넘길 수 있다 |
+| `shape-not-found` | 매핑이 가리킨 도형·표·placeholder가 템플릿에 없다 |
+| `slide-split` | 상세가 슬롯을 넘어 여러 장으로 나눴다 |
+| `slot-shortage` | 상세 중 일부만 이 슬라이드에 들어갔다 |
+| `screen-failed` | 이 화면의 슬라이드 생성이 실패했다 |
+| `image-convert-failed` | 이미지 변환에 실패했다 |
+| `orphan-row` | 화면ID가 없는 행이라 건너뛰었다 |
+
 ## 테스트
 
 ```bash
@@ -123,13 +165,15 @@ python -m pytest --override-ini="addopts=" -v    # 개별 PASSED 줄 보기
 
 ## 현재 한계
 
-- **사용자 템플릿의 레이아웃에 박힌 요소는 건드리지 못한다.** 상단 띠·하단 바 같은 것이 슬라이드가 아니라 레이아웃에 있으면 PowerPoint에서 직접 고쳐야 한다. 다만 기본 템플릿은 껍데기가 애초에 레이아웃에 있으므로, PowerPoint에서 레이아웃 `화면` 하나만 고치면 전 슬라이드에 반영된다.
-- **기본 템플릿의 meta 자리는 두 개뿐이다** (`문서제목`, `작성일`). 표지에서 더 많은 값을 읽어와도 꽂을 자리가 없다. 템플릿에 같은 이름의 도형을 추가하면 코드 수정 없이 채워진다.
+- **사용자 템플릿의 레이아웃에 박힌 요소는 건드리지 못한다.** 상단 띠·하단 바 같은 것이 슬라이드가 아니라 레이아웃에 있으면 PowerPoint에서 직접 고쳐야 한다. 다만 기본 템플릿은 껍데기가 애초에 레이아웃에 있으므로, PowerPoint에서 레이아웃 `내용설명연결` 하나만 고치면 전 슬라이드에 반영된다.
+- **메타 표의 칸은 열두 개로 고정이다.** 표지에서 그보다 많은 값을 읽어와도 꽂을 자리가 없다. 템플릿의 표에 칸을 늘리고 `meta_table.labels`에 라벨을 추가하면 코드 수정 없이 채워진다.
 - **기본 템플릿에는 python-pptx 기본 레이아웃 열 개가 함께 남는다.** 레이아웃을 이름으로 찾으므로 동작에는 영향이 없지만, PowerPoint에서 템플릿을 열면 쓰지 않는 레이아웃이 보인다.
+- **상세표는 항상 사진 아래에 놓인다.** 스크린샷이 세로로 길면 좌우가 통째로 비고 `image_split`이 불필요하게 여러 조각으로 자른다. 표를 옆으로 옮기는 설계는 `docs/superpowers/specs/2026-08-12-table-position-design.md`에 적혀 있으나 구현하지 않았다 — 표가 5개에서 4개로 줄어드는 것을 받아들일지가 미결이다.
 - `options.overflow`는 매핑에 자리만 있고 코드가 읽지 않는다. 분할은 항상 일어난다.
 
 ## 문서
 
-- 설계: `docs/superpowers/specs/`
+- 설계: `docs/superpowers/specs/` — 최근 것은 기본 템플릿 재구조화(`2026-08-18-out-template-restructure-design.md`)와 아직 구현하지 않은 상세표 위치(`2026-08-12-table-position-design.md`)다
 - 구현 계획: `docs/superpowers/plans/`
 - 프로젝트 규칙: `CLAUDE.md`
+- Claude가 읽는 절차서: `skills/excel-wireframe/SKILL.md`
