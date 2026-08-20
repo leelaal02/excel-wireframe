@@ -4,16 +4,16 @@
 
 > **공개 사이트 — https://leelaal02.github.io/excel-wireframe/**
 >
-> 이 폴더가 포트폴리오 정본이다. `portfolio.html`을 고쳤으면 저장소 루트의
-> `docs/index.html`로 복사해야 사이트에 반영된다 — GitHub Pages 소스 경로가
-> `/docs`로 고정돼 있어 이 폴더를 직접 배포할 수 없다.
+> 이 폴더가 곧 사이트다. `index.html`을 고쳐 push하면
+> `.github/workflows/pages.yml`이 이 폴더를 그대로 GitHub Pages로 올린다.
+> 사본을 따로 두거나 복사하는 단계는 없다.
 
 ```
 portfolio/
-├─ README.md        이 문서 (마크다운 판)
-├─ portfolio.html   웹 페이지 정본. 이미지가 base64로 박힌 단일 파일이라
-│                   브라우저로 그냥 열린다. docs/index.html이 이 파일의 사본
-└─ images/          마크다운 문서용 이미지 3장
+├─ README.md    이 문서 (마크다운 판)
+├─ index.html   웹 페이지. 이미지가 base64로 박힌 단일 파일이라
+│               브라우저로 그냥 열리고, 그대로 사이트가 된다
+└─ images/      마크다운 문서용 이미지 3장
 ```
 
 이미지는 `output/긴 버전13.pptx`를 PowerPoint COM으로 슬라이드마다 PNG 내보내기 한 뒤
